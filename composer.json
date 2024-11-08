@@ -1,5 +1,5 @@
 {
-    "name": "phoenix/repository",
+    "name": "phpnomad/mysql-integration",
     "description": "",
     "type": "library",
     "homepage": "https://github.com/phoenix/core",
@@ -30,12 +30,12 @@
             "email": "alex@standiford.us"
         }
     ],
-    "require-dev": {
-        "phoenix/tests": "^0.1.0"
-    },
     "config": {
         "allow-plugins": {
             "phpstan/extension-installer": true
         }
+    },
+    "require": {
+        "colshrapnel/safemysql": "^1.1"
     }
 }
