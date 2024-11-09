@@ -7,7 +7,7 @@ use PHPNomad\Database\Interfaces\ClauseBuilder;
 use PHPNomad\Database\Interfaces\QueryBuilder as QueryBuilderInterface;
 use PHPNomad\Database\Interfaces\Table;
 use PHPNomad\Database\Traits\WithPrependedFields;
-use PHPNomad\MySql\Facades\QueryParser;
+use PHPNomad\MySql\Integration\Facades\Database;
 use PHPNomad\Utils\Helpers\Arr;
 
 class QueryBuilder implements QueryBuilderInterface
@@ -264,7 +264,7 @@ class QueryBuilder implements QueryBuilderInterface
 
         // If necessary, prepare the query
         if (!empty($this->prepare)) {
-            $sql = QueryParser::parse($sql, ...$this->prepare);
+            $sql = Database::parse($sql, ...$this->prepare);
         }
 
         $this->reset();
