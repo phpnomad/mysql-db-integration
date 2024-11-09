@@ -16,12 +16,12 @@
     ],
     "autoload": {
         "psr-4": {
-            "Phoenix\\Core\\": "lib/"
+            "PHPNomad\\MySql\\Integration\\": "lib/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Phoenix\\Core\\Tests\\": "tests/"
+            "PHPNomad\\MySql\\Integration\\Tests\\": "tests/"
         }
     },
     "authors": [
@@ -34,8 +34,5 @@
         "allow-plugins": {
             "phpstan/extension-installer": true
         }
-    },
-    "require": {
-        "colshrapnel/safemysql": "^1.1"
     }
 }
