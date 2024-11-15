@@ -2,6 +2,8 @@
 
 namespace PHPNomad\MySql\Integration;
 
+use PHPNomad\Database\Interfaces\CanConvertDatabaseStringToDateTime;
+use PHPNomad\Database\Interfaces\CanConvertToDatabaseDateString;
 use PHPNomad\Database\Interfaces\ClauseBuilder;
 use PHPNomad\Database\Interfaces\QueryBuilder as QueryBuilderInterface;
 use PHPNomad\Database\Interfaces\QueryStrategy as CoreQueryStrategy;
@@ -10,6 +12,7 @@ use PHPNomad\Database\Interfaces\TableDeleteStrategy as CoreTableDeleteStrategy;
 use PHPNomad\Database\Interfaces\TableExistsStrategy as CoreTableExistsStrategy;
 use PHPNomad\Database\Interfaces\TableUpdateStrategy as CoreTableUpdateStrategy;
 use PHPNomad\Loader\Interfaces\HasClassDefinitions;
+use PHPNomad\MySql\Integration\Adapters\DatabaseDateAdapter;
 use PHPNomad\MySql\Integration\Builders\MySqlClauseBuilder;
 use PHPNomad\MySql\Integration\Builders\QueryBuilder;
 use PHPNomad\MySql\Integration\Strategies\QueryStrategy;
@@ -29,7 +32,11 @@ class MySqlInitializer implements HasClassDefinitions
             TableDeleteStrategy::class => CoreTableDeleteStrategy::class,
             TableExistsStrategy::class => CoreTableExistsStrategy::class,
             TableUpdateStrategy::class => CoreTableUpdateStrategy::class,
-            QueryStrategy::class => CoreQueryStrategy::class
+            QueryStrategy::class => CoreQueryStrategy::class,
+            DatabaseDateAdapter::class => [
+                CanConvertDatabaseStringToDateTime::class,
+                CanConvertToDatabaseDateString::class
+            ]
         ];
     }
 }
