@@ -28,5 +28,9 @@
         "allow-plugins": {
             "phpstan/extension-installer": true
         }
+    },
+    "require": {
+        "phpnomad/db": "^1.0",
+        "phpnomad/loader": "^1.0"
     }
 }
