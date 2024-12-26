@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "0f455aefff88b4417e7c2b42ab30ec7d",
+    "content-hash": "cfc473ee5d57ca6e38eda8d6a937d1d6",
     "packages": [
         {
             "name": "phpnomad/cache",
@@ -53,20 +53,20 @@
         },
         {
             "name": "phpnomad/datastore",
-            "version": "1.0.0",
+            "version": "2.0.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpnomad/datastore.git",
-                "reference": "6bf7919e0849fd4d514d3659a917df65388a6b05"
+                "reference": "261897be5d3eb737b8d4db4ab235f87dc6da2fcb"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpnomad/datastore/zipball/6bf7919e0849fd4d514d3659a917df65388a6b05",
-                "reference": "6bf7919e0849fd4d514d3659a917df65388a6b05",
+                "url": "https://api.github.com/repos/phpnomad/datastore/zipball/261897be5d3eb737b8d4db4ab235f87dc6da2fcb",
+                "reference": "261897be5d3eb737b8d4db4ab235f87dc6da2fcb",
                 "shasum": ""
             },
             "require-dev": {
-                "phpnomad/tests": "^0.1.0"
+                "phpnomad/tests": "^0.1.0 || ^0.3.0"
             },
             "type": "library",
             "autoload": {
@@ -87,35 +87,33 @@
             "homepage": "https://github.com/phpnomad/core",
             "support": {
                 "issues": "https://github.com/phpnomad/datastore/issues",
-                "source": "https://github.com/phpnomad/datastore/tree/1.0.0"
+                "source": "https://github.com/phpnomad/datastore/tree/2.0.0"
             },
-            "time": "2024-12-18T17:06:26+00:00"
+            "time": "2024-12-25T20:10:21+00:00"
         },
         {
             "name": "phpnomad/db",
-            "version": "1.0.0",
+            "version": "2.0.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpnomad/db.git",
-                "reference": "aec4cf8662166e3da93bb9f07a69cc780e732279"
+                "reference": "b2de2742d70a8fba289ca95fbc33aa6be6044811"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpnomad/db/zipball/aec4cf8662166e3da93bb9f07a69cc780e732279",
-                "reference": "aec4cf8662166e3da93bb9f07a69cc780e732279",
+                "url": "https://api.github.com/repos/phpnomad/db/zipball/b2de2742d70a8fba289ca95fbc33aa6be6044811",
+                "reference": "b2de2742d70a8fba289ca95fbc33aa6be6044811",
                 "shasum": ""
             },
             "require": {
                 "phpnomad/cache": "^1.0",
-                "phpnomad/datastore": "^1.0",
-                "phpnomad/event": "^1.0",
-                "phpnomad/facade": "^1.0",
+                "phpnomad/datastore": "^2.0",
                 "phpnomad/logger": "^1.0",
                 "phpnomad/singleton": "^1.0",
                 "phpnomad/utils": "^1.0"
             },
             "require-dev": {
-                "phpnomad/tests": "^0.1.0"
+                "phpnomad/tests": "^0.1.0 || ^0.3.0"
             },
             "type": "library",
             "autoload": {
@@ -136,9 +134,9 @@
             "homepage": "https://github.com/phpnomad/core",
             "support": {
                 "issues": "https://github.com/phpnomad/db/issues",
-                "source": "https://github.com/phpnomad/db/tree/1.0.0"
+                "source": "https://github.com/phpnomad/db/tree/2.0.0"
             },
-            "time": "2024-12-18T17:06:56+00:00"
+            "time": "2024-12-25T20:25:21+00:00"
         },
         {
             "name": "phpnomad/di",
@@ -444,12 +442,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpnomad/singleton.git",
-                "reference": "8087ea2afa9b0978e6ce37c42977bdd17313445c"
+                "reference": "1770888712eec6d72c2e6f962d384fe6a2fb8307"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpnomad/singleton/zipball/8087ea2afa9b0978e6ce37c42977bdd17313445c",
-                "reference": "8087ea2afa9b0978e6ce37c42977bdd17313445c",
+                "url": "https://api.github.com/repos/phpnomad/singleton/zipball/1770888712eec6d72c2e6f962d384fe6a2fb8307",
+                "reference": "1770888712eec6d72c2e6f962d384fe6a2fb8307",
                 "shasum": ""
             },
             "require-dev": {
@@ -476,7 +474,7 @@
                 "issues": "https://github.com/phpnomad/singleton/issues",
                 "source": "https://github.com/phpnomad/singleton/tree/1.0.0"
             },
-            "time": "2024-12-18T16:23:11+00:00"
+            "time": "2024-12-18T17:25:13+00:00"
         },
         {
             "name": "phpnomad/update",
@@ -527,12 +525,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpnomad/utils.git",
-                "reference": "bf47baea7ca6d5245f789fc93396d01f2ae5cc34"
+                "reference": "1bdcf8437fd1143737425c57c1b01dccd5ca0652"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpnomad/utils/zipball/bf47baea7ca6d5245f789fc93396d01f2ae5cc34",
-                "reference": "bf47baea7ca6d5245f789fc93396d01f2ae5cc34",
+                "url": "https://api.github.com/repos/phpnomad/utils/zipball/1bdcf8437fd1143737425c57c1b01dccd5ca0652",
+                "reference": "1bdcf8437fd1143737425c57c1b01dccd5ca0652",
                 "shasum": ""
             },
             "require-dev": {
@@ -559,7 +557,7 @@
                 "issues": "https://github.com/phpnomad/utils/issues",
                 "source": "https://github.com/phpnomad/utils/tree/1.0.0"
             },
-            "time": "2024-12-18T16:24:57+00:00"
+            "time": "2024-12-18T17:29:56+00:00"
         }
     ],
     "packages-dev": [],
