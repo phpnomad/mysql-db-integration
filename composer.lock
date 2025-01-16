@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "0f455aefff88b4417e7c2b42ab30ec7d",
+    "content-hash": "cfc473ee5d57ca6e38eda8d6a937d1d6",
     "packages": [
         {
             "name": "phpnomad/cache",
-            "version": "1.0.0",
+            "version": "1.0.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpnomad/cache.git",
-                "reference": "2f780019686a654c3d715fadfceac7aab675dc04"
+                "reference": "5304a5cc0444e7ee3171b9dad43ee2d563e40a09"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpnomad/cache/zipball/2f780019686a654c3d715fadfceac7aab675dc04",
-                "reference": "2f780019686a654c3d715fadfceac7aab675dc04",
+                "url": "https://api.github.com/repos/phpnomad/cache/zipball/5304a5cc0444e7ee3171b9dad43ee2d563e40a09",
+                "reference": "5304a5cc0444e7ee3171b9dad43ee2d563e40a09",
                 "shasum": ""
             },
             "require": {
@@ -26,7 +26,7 @@
                 "phpnomad/utils": "^1.0"
             },
             "require-dev": {
-                "phpnomad/tests": "^0.1.0"
+                "phpnomad/tests": "^0.1.0 || ^0.3.0"
             },
             "type": "library",
             "autoload": {
@@ -47,26 +47,26 @@
             "homepage": "https://github.com/phpnomad/core",
             "support": {
                 "issues": "https://github.com/phpnomad/cache/issues",
-                "source": "https://github.com/phpnomad/cache/tree/1.0.0"
+                "source": "https://github.com/phpnomad/cache/tree/1.0.2"
             },
-            "time": "2024-12-18T17:04:27+00:00"
+            "time": "2025-01-15T11:37:08+00:00"
         },
         {
             "name": "phpnomad/datastore",
-            "version": "1.0.0",
+            "version": "2.0.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpnomad/datastore.git",
-                "reference": "6bf7919e0849fd4d514d3659a917df65388a6b05"
+                "reference": "1fcee29c6bf8e29ca490c86f21e0bb49b3f70d9f"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpnomad/datastore/zipball/6bf7919e0849fd4d514d3659a917df65388a6b05",
-                "reference": "6bf7919e0849fd4d514d3659a917df65388a6b05",
+                "url": "https://api.github.com/repos/phpnomad/datastore/zipball/1fcee29c6bf8e29ca490c86f21e0bb49b3f70d9f",
+                "reference": "1fcee29c6bf8e29ca490c86f21e0bb49b3f70d9f",
                 "shasum": ""
             },
             "require-dev": {
-                "phpnomad/tests": "^0.1.0"
+                "phpnomad/tests": "^0.1.0 || ^0.3.0"
             },
             "type": "library",
             "autoload": {
@@ -87,35 +87,33 @@
             "homepage": "https://github.com/phpnomad/core",
             "support": {
                 "issues": "https://github.com/phpnomad/datastore/issues",
-                "source": "https://github.com/phpnomad/datastore/tree/1.0.0"
+                "source": "https://github.com/phpnomad/datastore/tree/2.0.0"
             },
-            "time": "2024-12-18T17:06:26+00:00"
+            "time": "2024-12-28T14:35:23+00:00"
         },
         {
             "name": "phpnomad/db",
-            "version": "1.0.0",
+            "version": "2.0.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpnomad/db.git",
-                "reference": "aec4cf8662166e3da93bb9f07a69cc780e732279"
+                "reference": "d15e7b0d113d976be82983c87df666bb39da670c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpnomad/db/zipball/aec4cf8662166e3da93bb9f07a69cc780e732279",
-                "reference": "aec4cf8662166e3da93bb9f07a69cc780e732279",
+                "url": "https://api.github.com/repos/phpnomad/db/zipball/d15e7b0d113d976be82983c87df666bb39da670c",
+                "reference": "d15e7b0d113d976be82983c87df666bb39da670c",
                 "shasum": ""
             },
             "require": {
                 "phpnomad/cache": "^1.0",
-                "phpnomad/datastore": "^1.0",
-                "phpnomad/event": "^1.0",
-                "phpnomad/facade": "^1.0",
+                "phpnomad/datastore": "^2.0",
                 "phpnomad/logger": "^1.0",
                 "phpnomad/singleton": "^1.0",
                 "phpnomad/utils": "^1.0"
             },
             "require-dev": {
-                "phpnomad/tests": "^0.1.0"
+                "phpnomad/tests": "^0.1.0 || ^0.3.0"
             },
             "type": "library",
             "autoload": {
@@ -136,9 +134,9 @@
             "homepage": "https://github.com/phpnomad/core",
             "support": {
                 "issues": "https://github.com/phpnomad/db/issues",
-                "source": "https://github.com/phpnomad/db/tree/1.0.0"
+                "source": "https://github.com/phpnomad/db/tree/2.0.1"
             },
-            "time": "2024-12-18T17:06:56+00:00"
+            "time": "2025-01-15T11:34:31+00:00"
         },
         {
             "name": "phpnomad/di",
@@ -185,23 +183,23 @@
         },
         {
             "name": "phpnomad/enum-polyfill",
-            "version": "1.0.0",
+            "version": "1.0.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpnomad/enum-polyfill.git",
-                "reference": "6d24b759f566066b30b244cb0584ab7c03da1d0e"
+                "reference": "0502689aa07ddeff67421ed57120f693f096a6ed"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpnomad/enum-polyfill/zipball/6d24b759f566066b30b244cb0584ab7c03da1d0e",
-                "reference": "6d24b759f566066b30b244cb0584ab7c03da1d0e",
+                "url": "https://api.github.com/repos/phpnomad/enum-polyfill/zipball/0502689aa07ddeff67421ed57120f693f096a6ed",
+                "reference": "0502689aa07ddeff67421ed57120f693f096a6ed",
                 "shasum": ""
             },
             "require": {
                 "phpnomad/singleton": "^1.0"
             },
             "require-dev": {
-                "phpnomad/tests": "^0.1.0"
+                "phpnomad/tests": "^0.1.0 || ^0.3.0"
             },
             "type": "library",
             "autoload": {
@@ -222,9 +220,9 @@
             "homepage": "https://github.com/phpnomad/core",
             "support": {
                 "issues": "https://github.com/phpnomad/enum-polyfill/issues",
-                "source": "https://github.com/phpnomad/enum-polyfill/tree/1.0.0"
+                "source": "https://github.com/phpnomad/enum-polyfill/tree/1.0.1"
             },
-            "time": "2024-12-18T17:03:12+00:00"
+            "time": "2025-01-13T11:51:33+00:00"
         },
         {
             "name": "phpnomad/event",
@@ -444,12 +442,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpnomad/singleton.git",
-                "reference": "8087ea2afa9b0978e6ce37c42977bdd17313445c"
+                "reference": "1770888712eec6d72c2e6f962d384fe6a2fb8307"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpnomad/singleton/zipball/8087ea2afa9b0978e6ce37c42977bdd17313445c",
-                "reference": "8087ea2afa9b0978e6ce37c42977bdd17313445c",
+                "url": "https://api.github.com/repos/phpnomad/singleton/zipball/1770888712eec6d72c2e6f962d384fe6a2fb8307",
+                "reference": "1770888712eec6d72c2e6f962d384fe6a2fb8307",
                 "shasum": ""
             },
             "require-dev": {
@@ -476,7 +474,7 @@
                 "issues": "https://github.com/phpnomad/singleton/issues",
                 "source": "https://github.com/phpnomad/singleton/tree/1.0.0"
             },
-            "time": "2024-12-18T16:23:11+00:00"
+            "time": "2024-12-18T17:25:13+00:00"
         },
         {
             "name": "phpnomad/update",
@@ -527,12 +525,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpnomad/utils.git",
-                "reference": "bf47baea7ca6d5245f789fc93396d01f2ae5cc34"
+                "reference": "1bdcf8437fd1143737425c57c1b01dccd5ca0652"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpnomad/utils/zipball/bf47baea7ca6d5245f789fc93396d01f2ae5cc34",
-                "reference": "bf47baea7ca6d5245f789fc93396d01f2ae5cc34",
+                "url": "https://api.github.com/repos/phpnomad/utils/zipball/1bdcf8437fd1143737425c57c1b01dccd5ca0652",
+                "reference": "1bdcf8437fd1143737425c57c1b01dccd5ca0652",
                 "shasum": ""
             },
             "require-dev": {
@@ -559,7 +557,7 @@
                 "issues": "https://github.com/phpnomad/utils/issues",
                 "source": "https://github.com/phpnomad/utils/tree/1.0.0"
             },
-            "time": "2024-12-18T16:24:57+00:00"
+            "time": "2024-12-18T17:29:56+00:00"
         }
     ],
     "packages-dev": [],
@@ -570,5 +568,5 @@
     "prefer-lowest": false,
     "platform": [],
     "platform-dev": [],
-    "plugin-api-version": "2.6.0"
+    "plugin-api-version": "2.3.0"
 }
