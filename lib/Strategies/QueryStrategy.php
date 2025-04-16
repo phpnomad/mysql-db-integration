@@ -3,12 +3,12 @@
 namespace PHPNomad\MySql\Integration\Strategies;
 
 use PHPNomad\Database\Exceptions\QueryBuilderException;
-use PHPNomad\Datastore\Exceptions\RecordNotFoundException;
 use PHPNomad\Database\Interfaces\ClauseBuilder;
 use PHPNomad\Database\Interfaces\QueryBuilder;
 use PHPNomad\Database\Interfaces\QueryStrategy as CoreQueryStrategy;
 use PHPNomad\Database\Interfaces\Table;
 use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
+use PHPNomad\Datastore\Exceptions\RecordNotFoundException;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\Utils\Helpers\Arr;
 
@@ -16,8 +16,10 @@ class QueryStrategy implements CoreQueryStrategy
 {
     public function __construct(
         protected DatabaseStrategy $db,
-        protected ClauseBuilder $clauseBuilder
-    ) {}
+        protected ClauseBuilder    $clauseBuilder
+    )
+    {
+    }
 
     /** @inheritDoc */
     public function query(QueryBuilder $builder): array
@@ -52,9 +54,9 @@ class QueryStrategy implements CoreQueryStrategy
         $query = $this->db->parse("INSERT INTO ?n ($columns) VALUES ($placeholders)", $table->getName(), ...Arr::values($data));
 
         $this->db->query($query);
-        $id = $this->db->query("SELECT LAST_INSERT_ID()");
+        $id = $data['id'] ?? $this->db->query("SELECT LAST_INSERT_ID()");;
 
-        return ['id' => $id];
+        return ['id' => $id ?? null];
     }
 
     /** @inheritDoc */
