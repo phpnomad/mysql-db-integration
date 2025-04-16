@@ -3,7 +3,7 @@
 namespace PHPNomad\MySql\Integration\Strategies;
 
 use PHPNomad\Database\Exceptions\QueryBuilderException;
-use PHPNomad\Database\Exceptions\RecordNotFoundException;
+use PHPNomad\Datastore\Exceptions\RecordNotFoundException;
 use PHPNomad\Database\Interfaces\ClauseBuilder;
 use PHPNomad\Database\Interfaces\QueryBuilder;
 use PHPNomad\Database\Interfaces\QueryStrategy as CoreQueryStrategy;
