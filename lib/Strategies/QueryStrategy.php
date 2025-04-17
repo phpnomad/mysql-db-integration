@@ -12,6 +12,7 @@ use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
 use PHPNomad\Datastore\Exceptions\RecordNotFoundException;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\Utils\Helpers\Arr;
+use PHPNomad\Utils\Helpers\Str;
 
 class QueryStrategy implements CoreQueryStrategy
 {
@@ -59,7 +60,6 @@ class QueryStrategy implements CoreQueryStrategy
         );
 
         $this->db->query($query);
-
         return $this->resolveInsertIdentity($table, $data);
     }
 
@@ -82,7 +82,7 @@ class QueryStrategy implements CoreQueryStrategy
                 continue;
             }
 
-            if (Str::contains(Str::lower($column->getAttributes()), 'auto_increment')) {
+            if (Arr::hasValues($column->getAttributes(), 'AUTO_INCREMENT')) {
                 $result = $this->db->query("SELECT LAST_INSERT_ID()");
                 $identity[$name] = is_array($result) ? Arr::first($result) : $result;
             } else {
