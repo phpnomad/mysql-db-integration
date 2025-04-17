@@ -125,7 +125,7 @@ class QueryStrategy implements CoreQueryStrategy
         // Build WHERE clause
         $this->clauseBuilder->reset()->useTable($table);
         foreach ($ids as $key => $value) {
-            $this->clauseBuilder->where($key, '=', $value);
+            $this->clauseBuilder->andWhere($key, '=', $value);
         }
         
         $whereClause = $this->clauseBuilder->build();
