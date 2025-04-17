@@ -3,12 +3,13 @@
 namespace PHPNomad\MySql\Integration\Strategies;
 
 use PHPNomad\Database\Exceptions\QueryBuilderException;
-use PHPNomad\Datastore\Exceptions\RecordNotFoundException;
 use PHPNomad\Database\Interfaces\ClauseBuilder;
 use PHPNomad\Database\Interfaces\QueryBuilder;
 use PHPNomad\Database\Interfaces\QueryStrategy as CoreQueryStrategy;
 use PHPNomad\Database\Interfaces\Table;
+use PHPNomad\Database\Services\TableSchemaService;
 use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
+use PHPNomad\Datastore\Exceptions\RecordNotFoundException;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\Utils\Helpers\Arr;
 
@@ -16,8 +17,11 @@ class QueryStrategy implements CoreQueryStrategy
 {
     public function __construct(
         protected DatabaseStrategy $db,
-        protected ClauseBuilder $clauseBuilder
-    ) {}
+        protected TableSchemaService $tableSchemaService,
+        protected ClauseBuilder    $clauseBuilder
+    )
+    {
+    }
 
     /** @inheritDoc */
     public function query(QueryBuilder $builder): array
@@ -38,7 +42,6 @@ class QueryStrategy implements CoreQueryStrategy
     /** @inheritDoc */
     public function insert(Table $table, array $data): array
     {
-        // Process $data to build columns and placeholders
         $columns = Arr::process($data)
             ->keys()
             ->setSeparator(',')
@@ -49,13 +52,47 @@ class QueryStrategy implements CoreQueryStrategy
             ->setSeparator(',')
             ->toString();
 
-        $query = $this->db->parse("INSERT INTO ?n ($columns) VALUES ($placeholders)", $table->getName(), ...Arr::values($data));
+        $query = $this->db->parse(
+            "INSERT INTO ?n ($columns) VALUES ($placeholders)",
+            $table->getName(),
+            ...Arr::values($data)
+        );
 
         $this->db->query($query);
-        $id = $this->db->query("SELECT LAST_INSERT_ID()");
 
-        return ['id' => $id];
+        return $this->resolveInsertIdentity($table, $data);
     }
+
+    /**
+     * @param Table $table
+     * @param array $data
+     * @return array
+     * @throws DatastoreErrorException
+     */
+    protected function resolveInsertIdentity(Table $table, array $data): array
+    {
+        $identity = [];
+        $primaryColumns = $this->tableSchemaService->getPrimaryColumnsForTable($table);
+
+        foreach ($primaryColumns as $column) {
+            $name = $column->getName();
+
+            if (array_key_exists($name, $data)) {
+                $identity[$name] = $data[$name];
+                continue;
+            }
+
+            if (Str::contains(Str::lower($column->getAttributes()), 'auto_increment')) {
+                $result = $this->db->query("SELECT LAST_INSERT_ID()");
+                $identity[$name] = is_array($result) ? Arr::first($result) : $result;
+            } else {
+                throw new DatastoreErrorException("Missing identity field '$name' and it is not auto-increment.");
+            }
+        }
+
+        return $identity;
+    }
+
 
     /** @inheritDoc */
     public function delete(Table $table, array $ids): void

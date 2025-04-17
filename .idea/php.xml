@@ -78,12 +78,25 @@
       <path value="$PROJECT_DIR$/vendor/phpunit/php-code-coverage" />
       <path value="$PROJECT_DIR$/vendor/phoenix" />
       <path value="$PROJECT_DIR$/vendor" />
+      <path value="$PROJECT_DIR$/vendor/phpnomad/update" />
+      <path value="$PROJECT_DIR$/vendor/phpnomad/db" />
+      <path value="$PROJECT_DIR$/vendor/phpnomad/cache" />
+      <path value="$PROJECT_DIR$/vendor/phpnomad/loader" />
+      <path value="$PROJECT_DIR$/vendor/phpnomad/utils" />
+      <path value="$PROJECT_DIR$/vendor/phpnomad/singleton" />
+      <path value="$PROJECT_DIR$/vendor/phpnomad/di" />
+      <path value="$PROJECT_DIR$/vendor/phpnomad/datastore" />
+      <path value="$PROJECT_DIR$/vendor/phpnomad/facade" />
+      <path value="$PROJECT_DIR$/vendor/phpnomad/enum-polyfill" />
+      <path value="$PROJECT_DIR$/vendor/phpnomad/logger" />
+      <path value="$PROJECT_DIR$/vendor/phpnomad/mutator" />
+      <path value="$PROJECT_DIR$/vendor/phpnomad/event" />
     </include_path>
   </component>
   <component name="PhpInterpreters">
     <interpreters>
-      <interpreter id="a69a904b-db14-4cf2-a647-4a54088b94ec" name="Ubuntu" home="\\wsl$\Ubuntu/usr/bin/php" debugger_id="php.debugger.XDebug">
-        <remote_data INTERPRETER_PATH="/usr/bin/php" HELPERS_PATH="" INITIALIZED="false" VALID="true" RUN_AS_ROOT_VIA_SUDO="false" DISTRIBUTION_ID="Ubuntu" />
+      <interpreter id="a69a904b-db14-4cf2-a647-4a54088b94ec" name="Ubuntu" home="\\wsl$\Ubuntu/usr/bin/php" auto="false" debugger_id="php.debugger.XDebug">
+        <remote_data INTERPRETER_PATH="/usr/bin/php" HELPERS_PATH="" VALID="true" RUN_AS_ROOT_VIA_SUDO="false" DISTRIBUTION_ID="Ubuntu" />
       </interpreter>
     </interpreters>
   </component>
@@ -145,7 +158,7 @@
       </interpreter>
     </phpInfoCache>
   </component>
-  <component name="PhpProjectSharedConfiguration" php_language_level="7.4">
+  <component name="PhpProjectSharedConfiguration" php_language_level="8.0">
     <option name="suggestChangeDefaultLanguageLevel" value="false" />
   </component>
   <component name="PhpStan">
