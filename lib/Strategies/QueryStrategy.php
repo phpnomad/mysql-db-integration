@@ -116,23 +116,34 @@ class QueryStrategy implements CoreQueryStrategy
     /** @inheritDoc */
     public function update(Table $table, array $ids, array $data): void
     {
+        // Build the SET clause
         $setClause = Arr::process($data)
-            ->map(fn($value, $key) => "?n = ?s")
+            ->each(fn($v, $k) => '?n = ?s')
             ->setSeparator(', ')
             ->toString();
 
+        // Build WHERE clause
         $this->clauseBuilder->reset()->useTable($table);
         foreach ($ids as $key => $value) {
             $this->clauseBuilder->where($key, '=', $value);
         }
-
+        
         $whereClause = $this->clauseBuilder->build();
 
+        // Flatten $data into [col1, val1, col2, val2, ...] manually
+        $setBindings = [];
+        foreach ($data as $key => $val) {
+            $setBindings[] = $key;
+            $setBindings[] = $val;
+        }
+
         $query = $this->db->parse(
-            "UPDATE ?n SET $setClause WHERE $whereClause",
+            "UPDATE ?n AS ?n SET $setClause WHERE $whereClause",
             $table->getName(),
-            ...Arr::merge(Arr::values($data), Arr::values($ids))
+            $table->getAlias(),
+            ...$setBindings
         );
+        
 
         $result = $this->db->query($query);
 
@@ -140,6 +151,7 @@ class QueryStrategy implements CoreQueryStrategy
             throw new RecordNotFoundException('The update failed because no record exists with the specified IDs.');
         }
     }
+
 
     /** @inheritDoc */
     public function estimatedCount(Table $table): int
