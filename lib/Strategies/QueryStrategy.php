@@ -33,11 +33,17 @@ class QueryStrategy implements CoreQueryStrategy
             throw new DatastoreErrorException('Get results failed. Invalid query: ' . $e->getMessage(), 500, $e);
         }
 
-        if (empty($result)) {
+        if (!$result instanceof \mysqli_result) {
+            throw new DatastoreErrorException('Query did not return a valid mysqli_result.');
+        }
+
+        $rows = $result->fetch_all(MYSQLI_ASSOC);
+
+        if (empty($rows)) {
             throw new RecordNotFoundException();
         }
 
-        return $result;
+        return $rows;
     }
 
     /** @inheritDoc */
@@ -69,7 +75,7 @@ class QueryStrategy implements CoreQueryStrategy
      * @return array
      * @throws DatastoreErrorException
      */
-    protected function resolveInsertIdentity(Table $table, array $data): array
+    protected function resolveInsertIdentity(Table $table, array $data)
     {
         $identity = [];
         $primaryColumns = $this->tableSchemaService->getPrimaryColumnsForTable($table);
@@ -95,7 +101,7 @@ class QueryStrategy implements CoreQueryStrategy
                 throw new DatastoreErrorException("Missing identity field '$name' and it is not auto-increment.");
             }
         }
-
+        
         return $identity;
     }
 
