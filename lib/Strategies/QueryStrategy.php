@@ -29,15 +29,16 @@ class QueryStrategy implements CoreQueryStrategy
     {
         try {
             $result = $this->db->query($builder->build());
+
         } catch (QueryBuilderException $e) {
             throw new DatastoreErrorException('Get results failed. Invalid query: ' . $e->getMessage(), 500, $e);
         }
 
-        if (empty($rows)) {
+        if (empty($result)) {
             throw new RecordNotFoundException();
         }
 
-        return $rows;
+        return $result;
     }
 
     /** @inheritDoc */
