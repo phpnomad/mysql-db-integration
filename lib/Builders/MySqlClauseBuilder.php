@@ -188,7 +188,9 @@ class MySqlClauseBuilder implements ClauseBuilder
             $query = implode(' ', $queryParts);
 
             // Prepare the query with initial values if available
-            if (!empty($allValues)) {                
+            if (!empty($allValues)) {
+                var_dump($query, $allValues);
+                
                 $query = Database::parse($query, ...$allValues);
             }
 
@@ -226,6 +228,6 @@ class MySqlClauseBuilder implements ClauseBuilder
             return '(?a)';
         }
 
-        return '%s';
+        return '?s';
     }
 }
