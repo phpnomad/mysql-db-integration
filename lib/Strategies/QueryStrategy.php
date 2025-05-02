@@ -33,12 +33,6 @@ class QueryStrategy implements CoreQueryStrategy
             throw new DatastoreErrorException('Get results failed. Invalid query: ' . $e->getMessage(), 500, $e);
         }
 
-        if (!$result instanceof \mysqli_result) {
-            throw new DatastoreErrorException('Query did not return a valid mysqli_result.');
-        }
-
-        $rows = $result->fetch_all(MYSQLI_ASSOC);
-
         if (empty($rows)) {
             throw new RecordNotFoundException();
         }
@@ -90,13 +84,12 @@ class QueryStrategy implements CoreQueryStrategy
 
             if (Arr::hasValues($column->getAttributes(), 'AUTO_INCREMENT')) {
                 $result = $this->db->query("SELECT LAST_INSERT_ID()");
-                $row = $result->fetch_row();
 
-                if (!$row) {
+                if (!$result) {
                     throw new DatastoreErrorException('Failed to fetch LAST_INSERT_ID()');
                 }
 
-                $identity[$name] = (int) $row[0];
+                $identity[$name] = (int) Arr::get($result[0], 'LAST_INSERT_ID()');
             } else {
                 throw new DatastoreErrorException("Missing identity field '$name' and it is not auto-increment.");
             }
