@@ -84,7 +84,13 @@ class QueryStrategy implements CoreQueryStrategy
 
             if (Arr::hasValues($column->getAttributes(), 'AUTO_INCREMENT')) {
                 $result = $this->db->query("SELECT LAST_INSERT_ID()");
-                $identity[$name] = is_array($result) ? Arr::first($result) : $result;
+                $row = $result->fetch_row();
+
+                if (!$row) {
+                    throw new DatastoreErrorException('Failed to fetch LAST_INSERT_ID()');
+                }
+
+                $identity[$name] = (int) $row[0];
             } else {
                 throw new DatastoreErrorException("Missing identity field '$name' and it is not auto-increment.");
             }
