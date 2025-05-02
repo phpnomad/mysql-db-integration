@@ -138,11 +138,7 @@ class MySqlClauseBuilder implements ClauseBuilder
         $this->clauses[] = $placeholder;
 
         foreach (Arr::whereNotNull($values) as $value) {
-            if (is_array($value)) {
-                $this->preparedValues = Arr::merge($this->preparedValues, array_values($value));
-            } else {
-                $this->preparedValues[] = $value;
-            }
+            $this->preparedValues[] = $value;
         }
 
         return $this;
@@ -193,6 +189,8 @@ class MySqlClauseBuilder implements ClauseBuilder
 
             // Prepare the query with initial values if available
             if (!empty($allValues)) {
+                var_dump($query, $allValues);
+                
                 $query = Database::parse($query, ...$allValues);
             }
 
@@ -227,16 +225,7 @@ class MySqlClauseBuilder implements ClauseBuilder
         }
 
         if ($operator === 'IN' || $operator === 'NOT IN') {
-
-            // Group fields with multiple $field values (%s,%s),(%s,%s), else just flatten them %s,%s,%s,%s
-            if (is_array($field)) {
-                $subgroup = "(" . implode(', ', array_fill(0, count($field), '%s')) . ")";
-                $placeholderGroup = implode(', ', array_fill(0, count($values), $subgroup));
-            } else {
-                $placeholderGroup = implode(', ', array_fill(0, count($values), '%s'));
-            }
-
-            return "($placeholderGroup)";
+            return '(?a)';
         }
 
         return '%s';
