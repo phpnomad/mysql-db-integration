@@ -225,7 +225,8 @@ class MySqlClauseBuilder implements ClauseBuilder
         }
 
         if ($operator === 'IN' || $operator === 'NOT IN') {
-            return '(?a)';
+            $placeholders = implode(',', array_fill(0, count($values), '?a'));
+            return "($placeholders)";
         }
 
         return '?s';
