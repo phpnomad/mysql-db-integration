@@ -189,8 +189,6 @@ class MySqlClauseBuilder implements ClauseBuilder
 
             // Prepare the query with initial values if available
             if (!empty($allValues)) {
-                var_dump($query, $allValues);
-                
                 $query = Database::parse($query, ...$allValues);
             }
 
