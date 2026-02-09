@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "cfc473ee5d57ca6e38eda8d6a937d1d6",
+    "content-hash": "37a10b151f9df5ef026c3c10a617bae9",
     "packages": [
         {
             "name": "phpnomad/cache",
@@ -53,16 +53,16 @@
         },
         {
             "name": "phpnomad/datastore",
-            "version": "2.0.0",
+            "version": "2.0.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpnomad/datastore.git",
-                "reference": "1fcee29c6bf8e29ca490c86f21e0bb49b3f70d9f"
+                "reference": "af603fb6cfc5cbf7e531083ca842a5309ee4c194"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpnomad/datastore/zipball/1fcee29c6bf8e29ca490c86f21e0bb49b3f70d9f",
-                "reference": "1fcee29c6bf8e29ca490c86f21e0bb49b3f70d9f",
+                "url": "https://api.github.com/repos/phpnomad/datastore/zipball/af603fb6cfc5cbf7e531083ca842a5309ee4c194",
+                "reference": "af603fb6cfc5cbf7e531083ca842a5309ee4c194",
                 "shasum": ""
             },
             "require-dev": {
@@ -87,22 +87,22 @@
             "homepage": "https://github.com/phpnomad/core",
             "support": {
                 "issues": "https://github.com/phpnomad/datastore/issues",
-                "source": "https://github.com/phpnomad/datastore/tree/2.0.0"
+                "source": "https://github.com/phpnomad/datastore/tree/2.0.2"
             },
-            "time": "2024-12-28T14:35:23+00:00"
+            "time": "2025-03-26T17:17:49+00:00"
         },
         {
             "name": "phpnomad/db",
-            "version": "2.0.1",
+            "version": "2.1.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpnomad/db.git",
-                "reference": "d15e7b0d113d976be82983c87df666bb39da670c"
+                "reference": "29046e500ec06e577c496bdd0822ae7bc55478f7"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpnomad/db/zipball/d15e7b0d113d976be82983c87df666bb39da670c",
-                "reference": "d15e7b0d113d976be82983c87df666bb39da670c",
+                "url": "https://api.github.com/repos/phpnomad/db/zipball/29046e500ec06e577c496bdd0822ae7bc55478f7",
+                "reference": "29046e500ec06e577c496bdd0822ae7bc55478f7",
                 "shasum": ""
             },
             "require": {
@@ -134,9 +134,9 @@
             "homepage": "https://github.com/phpnomad/core",
             "support": {
                 "issues": "https://github.com/phpnomad/db/issues",
-                "source": "https://github.com/phpnomad/db/tree/2.0.1"
+                "source": "https://github.com/phpnomad/db/tree/2.1.0"
             },
-            "time": "2025-01-15T11:34:31+00:00"
+            "time": "2026-02-07T22:11:35+00:00"
         },
         {
             "name": "phpnomad/di",
@@ -521,20 +521,20 @@
         },
         {
             "name": "phpnomad/utils",
-            "version": "1.0.0",
+            "version": "1.0.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpnomad/utils.git",
-                "reference": "1bdcf8437fd1143737425c57c1b01dccd5ca0652"
+                "reference": "00b053f8f3f87419d2d2a9e2e3a8285bb9e1ff55"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpnomad/utils/zipball/1bdcf8437fd1143737425c57c1b01dccd5ca0652",
-                "reference": "1bdcf8437fd1143737425c57c1b01dccd5ca0652",
+                "url": "https://api.github.com/repos/phpnomad/utils/zipball/00b053f8f3f87419d2d2a9e2e3a8285bb9e1ff55",
+                "reference": "00b053f8f3f87419d2d2a9e2e3a8285bb9e1ff55",
                 "shasum": ""
             },
             "require-dev": {
-                "phpnomad/tests": "^0.1.0"
+                "phpnomad/tests": "^0.1.0 || ^0.3.0"
             },
             "type": "library",
             "autoload": {
@@ -555,18 +555,18 @@
             "homepage": "https://github.com/phpnomad/core",
             "support": {
                 "issues": "https://github.com/phpnomad/utils/issues",
-                "source": "https://github.com/phpnomad/utils/tree/1.0.0"
+                "source": "https://github.com/phpnomad/utils/tree/1.0.2"
             },
-            "time": "2024-12-18T17:29:56+00:00"
+            "time": "2026-01-12T21:59:57+00:00"
         }
     ],
     "packages-dev": [],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": [],
+    "stability-flags": {},
     "prefer-stable": false,
     "prefer-lowest": false,
-    "platform": [],
-    "platform-dev": [],
-    "plugin-api-version": "2.3.0"
+    "platform": {},
+    "platform-dev": {},
+    "plugin-api-version": "2.6.0"
 }
