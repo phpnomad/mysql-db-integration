@@ -61,7 +61,7 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy
         $query = $this->db->parse(
             "SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA
          FROM INFORMATION_SCHEMA.COLUMNS
-         WHERE TABLE_NAME = ?s",
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?s",
             $tableName
         );
 
