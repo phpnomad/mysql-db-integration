@@ -112,8 +112,10 @@ class QueryStrategy implements CoreQueryStrategy
         $whereClause = $this->clauseBuilder->build();
 
         $query = $this->db->parse(
-            "DELETE FROM ?n WHERE $whereClause",
-            $table->getName()
+            "DELETE ?n FROM ?n AS ?n WHERE $whereClause",
+            $table->getAlias(),
+            $table->getName(),
+            $table->getAlias()
         );
 
         $this->db->query($query);
