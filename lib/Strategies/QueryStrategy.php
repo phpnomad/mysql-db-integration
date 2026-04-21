@@ -103,10 +103,13 @@ class QueryStrategy implements CoreQueryStrategy
     /** @inheritDoc */
     public function delete(Table $table, array $ids): void
     {
-        // Use ClauseBuilder to construct the WHERE clause
+        // `andWhere` is used throughout rather than `where` so compound-key
+        // deletes AND the conditions together. `where` appends clauses with
+        // no logical operator between them, which yields invalid SQL as soon
+        // as there is more than one key.
         $this->clauseBuilder->reset()->useTable($table);
         foreach ($ids as $key => $value) {
-            $this->clauseBuilder->where($key, '=', $value);
+            $this->clauseBuilder->andWhere($key, '=', $value);
         }
 
         $whereClause = $this->clauseBuilder->build();
@@ -151,13 +154,13 @@ class QueryStrategy implements CoreQueryStrategy
             $table->getAlias(),
             ...$setBindings
         );
-        
 
-        $result = $this->db->query($query);
-
-        if ($result === 0) {
-            throw new RecordNotFoundException('The update failed because no record exists with the specified IDs.');
-        }
+        // MySQL returns 0 affected rows for a legitimate no-op update
+        // (matched row, values unchanged). That is not a "record not found"
+        // condition — the row exists; the supplied values were already what
+        // was stored. Callers that need existence checks should perform them
+        // before calling update(), not rely on the affected-rows count.
+        $this->db->query($query);
     }
 
 
