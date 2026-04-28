@@ -12,10 +12,20 @@ use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
 use PHPNomad\Datastore\Exceptions\RecordNotFoundException;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\Utils\Helpers\Arr;
-use PHPNomad\Utils\Helpers\Str;
+use Throwable;
 
 class QueryStrategy implements CoreQueryStrategy
 {
+    /**
+     * Tracks whether this strategy has written during the current request.
+     *
+     * After a write, managed hosts with read replicas may route normal reads to a
+     * stale replica. This flag lets only post-write reads use the writer-consistent
+     * path, so normal reads stay cheap while read-after-write hydration can see
+     * the row that was just inserted or changed.
+     */
+    protected bool $hasWritten = false;
+
     public function __construct(
         protected DatabaseStrategy $db,
         protected TableSchemaService $tableSchemaService,
@@ -26,6 +36,51 @@ class QueryStrategy implements CoreQueryStrategy
 
     /** @inheritDoc */
     public function query(QueryBuilder $builder): array
+    {
+        if ($this->hasWritten) {
+            return $this->queryAfterWrite($builder);
+        }
+
+        return $this->queryNormally($builder);
+    }
+
+    /**
+     * Executes a read through a path that can see preceding writes.
+     *
+     * @param QueryBuilder $builder
+     * @return array
+     * @throws DatastoreErrorException
+     * @throws RecordNotFoundException
+     */
+    protected function queryAfterWrite(QueryBuilder $builder): array
+    {
+        $this->db->query('START TRANSACTION');
+
+        try {
+            $result = $this->queryNormally($builder);
+            $this->db->query('COMMIT');
+
+            return $result;
+        } catch (Throwable $e) {
+            try {
+                $this->db->query('ROLLBACK');
+            } catch (Throwable $rollbackException) {
+                // Preserve the original read failure.
+            }
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Executes a normal read query using the configured database strategy.
+     *
+     * @param QueryBuilder $builder
+     * @return array
+     * @throws DatastoreErrorException
+     * @throws RecordNotFoundException
+     */
+    protected function queryNormally(QueryBuilder $builder): array
     {
         try {
             $result = $this->db->query($builder->build());
@@ -60,8 +115,24 @@ class QueryStrategy implements CoreQueryStrategy
             ...Arr::values($data)
         );
 
-        $this->db->query($query);
-        return $this->resolveInsertIdentity($table, $data);
+        $this->db->query('START TRANSACTION');
+
+        try {
+            $this->db->query($query);
+            $identity = $this->resolveInsertIdentity($table, $data);
+            $this->db->query('COMMIT');
+            $this->hasWritten = true;
+
+            return $identity;
+        } catch (Throwable $e) {
+            try {
+                $this->db->query('ROLLBACK');
+            } catch (Throwable $rollbackException) {
+                // Preserve the original insert failure.
+            }
+
+            throw $e;
+        }
     }
 
     /**
@@ -119,6 +190,7 @@ class QueryStrategy implements CoreQueryStrategy
         );
 
         $this->db->query($query);
+        $this->hasWritten = true;
     }
 
     /** @inheritDoc */
@@ -158,6 +230,8 @@ class QueryStrategy implements CoreQueryStrategy
         if ($result === 0) {
             throw new RecordNotFoundException('The update failed because no record exists with the specified IDs.');
         }
+
+        $this->hasWritten = true;
     }
 
 
