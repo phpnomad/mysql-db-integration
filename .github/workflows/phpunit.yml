@@ -1,30 +1,27 @@
 name: CI
 
-on: [ push ]
+on: [ push, pull_request ]
 
 jobs:
   build-test:
     runs-on: ubuntu-latest
     strategy:
-        matrix:
-            php: [ '7.4', '8.0', '8.1', '8.2' ]
+      fail-fast: false
+      matrix:
+        # The composer.lock pins modern PHPNomad versions whose own
+        # transitive deps no longer support PHP < 8.2. Older PHP rows
+        # would fail at `composer install` regardless of the library's
+        # own constraints. composer.json should declare an explicit PHP
+        # floor matching this (separate cleanup).
+        php: [ '8.2', '8.3' ]
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up SSH key
-        run: |
-            mkdir -p ~/.ssh
-            echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-            chmod 600 ~/.ssh/id_rsa
-      - name: Add GitHub to known hosts
-        run: ssh-keyscan github.com >> ~/.ssh/known_hosts
-      - name: Add SSH key to agent
-        run: |
-            eval $(ssh-agent -s)
-            ssh-add ~/.ssh/id_rsa
-      - name: Clear composer cache
-        run: composer clear-cache
-      - uses: php-actions/composer@v6
-      - name: PHPUnit Tests
-        uses: php-actions/phpunit@v3
+      - uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
         with:
-          configuration: phpunit.xml
+          php-version: ${{ matrix.php }}
+          coverage: none
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+      - name: Run PHPUnit
+        run: ./vendor/bin/phpunit

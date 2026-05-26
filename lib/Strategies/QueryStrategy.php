@@ -171,7 +171,7 @@ class QueryStrategy implements CoreQueryStrategy
 
         try {
             $result = $this->db->query($query);
-            return (int)Arr::get($result[0], 'COUNT(*)', 0);
+            return (int)Arr::get($result[0], 'COUNT(*)');
         } catch (\Exception $e) {
             throw new DatastoreErrorException('Count query failed: ' . $e->getMessage(), 500, $e);
         }

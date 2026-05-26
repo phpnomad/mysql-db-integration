@@ -38,6 +38,7 @@ class QueryBuilder implements QueryBuilderInterface
 
     protected ?ClauseBuilder $clauseBuilder = null;
     protected array $groupBy = [];
+    protected array $join = [];
 
     /** @inheritDoc */
     public function select(string $field, string ...$fields)
@@ -288,6 +289,7 @@ class QueryBuilder implements QueryBuilderInterface
         $this->offset = [];
         $this->orderBy = [];
         $this->groupBy = [];
+        $this->join = [];
 
         return $this;
     }
