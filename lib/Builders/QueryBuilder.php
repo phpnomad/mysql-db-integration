@@ -166,7 +166,12 @@ class QueryBuilder implements QueryBuilderInterface
     /** @inheritDoc */
     public function count(string $fieldToCount, ?string $alias = null)
     {
-        $alias = $alias ?: $fieldToCount . '_count';
+        // Default alias is "<field>_count", with a special case for `*` —
+        // `*_count` isn't a valid SQL identifier and produces a syntax error
+        // when the query is executed.
+        if ($alias === null) {
+            $alias = $fieldToCount === '*' ? 'count' : $fieldToCount . '_count';
+        }
 
         if($fieldToCount !== '*'){
             $fieldToCount = $this->prependField($fieldToCount);
