@@ -125,9 +125,16 @@ class MySqlClauseBuilder implements ClauseBuilder
             return $this;
         }
 
-        $placeholder = $this->generatePlaceholder($field, $values, $operator);
-
         $fieldStr = $this->getFieldString($field);
+
+        // If the field isn't on the active table, drop the whole predicate.
+        // Otherwise we'd push `null` for the field but still emit the operator
+        // and placeholder, producing invalid SQL like `WHERE = 'value'`.
+        if ($fieldStr === null) {
+            return $this;
+        }
+
+        $placeholder = $this->generatePlaceholder($field, $values, $operator);
 
         if (!empty($this->clauses) && $logic && in_array(strtoupper($logic), ['AND', 'OR'])) {
             $this->clauses[] = strtoupper($logic);
