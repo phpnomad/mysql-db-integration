@@ -31,7 +31,8 @@
     },
     "require": {
         "phpnomad/db": "^2.0",
-        "phpnomad/loader": "^1.0 || ^2.0"
+        "phpnomad/loader": "^1.0 || ^2.0",
+        "ext-pdo": "*"
     },
     "require-dev": {
         "phpnomad/tests": "^0.1.0 || ^0.3.0"
