@@ -14,6 +14,18 @@ jobs:
         # own constraints. composer.json should declare an explicit PHP
         # floor matching this (separate cleanup).
         php: [ '8.2', '8.3' ]
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3308:3306
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     steps:
       - uses: actions/checkout@v4
       - name: Set up PHP
