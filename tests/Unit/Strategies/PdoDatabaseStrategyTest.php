@@ -27,6 +27,7 @@ class PdoDatabaseStrategyTest extends TestCase
             $pdo = new PDO($dsn, $user, $pass, [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_STRINGIFY_FETCHES => true,
             ]);
         } catch (\PDOException $e) {
             $this->markTestSkipped('No MySQL server reachable for PDO strategy tests: ' . $e->getMessage());
@@ -94,7 +95,8 @@ class PdoDatabaseStrategyTest extends TestCase
 
         $rows = $strategy->query('SELECT * FROM t ORDER BY id');
 
-        $this->assertSame([['id' => 1, 'name' => 'a'], ['id' => 2, 'name' => 'b']], $rows);
+        // Stringified fetches pin parity with the mysqli-based backend.
+        $this->assertSame([['id' => '1', 'name' => 'a'], ['id' => '2', 'name' => 'b']], $rows);
     }
 
     public function testQueryReturnsAffectedRowCountForWrites(): void

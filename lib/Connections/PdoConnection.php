@@ -51,6 +51,12 @@ class PdoConnection
                 [
                     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                    // Parity with the mysqli-based SafeMySQL backend this
+                    // strategy replaces: all column values arrive as strings.
+                    // Consumers were written against that typing; native
+                    // int/float fetches would silently change cache-key
+                    // hashing and strict comparisons downstream.
+                    PDO::ATTR_STRINGIFY_FETCHES => true,
                 ]
             );
         }
