@@ -38,7 +38,16 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy
         }
     }
 
-    protected function convertColumnToSql(Column $column): string
+    /**
+     * Attributes that declare a key rather than describe the column.
+     *
+     * These are valid when a column is first added, and invalid on MODIFY: the
+     * key already exists, so MySQL rejects the statement ("Multiple primary key
+     * defined"). Keys are owned by the table's index definitions.
+     */
+    protected const KEY_ATTRIBUTES = ['PRIMARY KEY', 'UNIQUE KEY', 'UNIQUE'];
+
+    protected function convertColumnToSql(Column $column, bool $includeKeys = true): string
     {
         // Get the column name and type
         $columnName = $column->getName();
@@ -50,10 +59,22 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy
             $columnType .= '(' . implode(',', $typeArgs) . ')';
         }
 
-        // Handle attributes (e.g., NOT NULL, DEFAULT 'value')
-        $attributes = implode(' ', $column->getAttributes());
+        $columnAttributes = $column->getAttributes();
+        if (!$includeKeys) {
+            $columnAttributes = Arr::filter(
+                $columnAttributes,
+                static fn($attribute): bool => !in_array(
+                    strtoupper(trim((string) $attribute)),
+                    static::KEY_ATTRIBUTES,
+                    true
+                )
+            );
+        }
 
-        return "`{$columnName}` {$columnType} {$attributes}";
+        // Handle attributes (e.g., NOT NULL, DEFAULT 'value')
+        $attributes = implode(' ', $columnAttributes);
+
+        return rtrim("`{$columnName}` {$columnType} {$attributes}");
     }
 
     protected function getCurrentColumns(string $tableName): array
@@ -75,24 +96,56 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy
         return $columns;
     }
 
+    /**
+     * Integer types whose declared display width MySQL no longer stores.
+     *
+     * Since 8.0.17 the server drops the width from integer types, so a schema
+     * declaring INT(11) reads back as plain `int`. Comparing the two literally
+     * marks every integer column in the database as changed.
+     */
+    protected const WIDTHLESS_INTEGER_TYPES = ['tinyint', 'smallint', 'mediumint', 'int', 'integer', 'bigint'];
+
     protected function needsColumnModification(array $currentColumnData, Column $newColumn): bool
     {
-        // Check if the column type and type arguments match
-        $currentType = $currentColumnData['COLUMN_TYPE'];
-        $newType = $newColumn->getType();
+        $currentType = $this->normalizeType((string) $currentColumnData['COLUMN_TYPE']);
+        $newType = $this->normalizeType($this->declaredType($newColumn));
 
-        // Append type arguments to the new type if they exist
-        $typeArgs = $newColumn->getTypeArgs();
+        // Compare for equality, not containment. `bigint` contains `int`, so a
+        // containment check reported a genuine int-to-bigint widening as already
+        // satisfied and skipped it.
+        return $currentType !== $newType;
+    }
+
+    /** The type as written in the schema, including any arguments. */
+    protected function declaredType(Column $column): string
+    {
+        $type = $column->getType();
+        $typeArgs = $column->getTypeArgs();
+
         if (!empty($typeArgs)) {
-            $newType .= '(' . implode(',', $typeArgs) . ')';
+            $type .= '(' . implode(',', $typeArgs) . ')';
         }
 
-        // Check if the types are different
-        if (!str_contains(strtolower($currentType), strtolower($newType))) {
-            return true;
+        return $type;
+    }
+
+    /**
+     * Reduce a type to the form MySQL actually stores, so a schema declaration
+     * and what the server reports back can be compared for equality.
+     */
+    protected function normalizeType(string $type): string
+    {
+        $type = strtolower(trim($type));
+
+        // Strip the display width from integers, which the server discards.
+        // Anything else keeps its arguments, since VARCHAR(100) and VARCHAR(255)
+        // are genuinely different types.
+        if (preg_match('/^(\w+)\s*\(\s*\d+\s*\)$/', $type, $matches) === 1
+            && in_array($matches[1], static::WIDTHLESS_INTEGER_TYPES, true)) {
+            return $matches[1];
         }
 
-        return false;
+        return $type;
     }
 
     /**
@@ -111,12 +164,15 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy
         foreach ($newColumns as $newColumn) {
             $columnName = $newColumn->getName();
             if (!array_key_exists($columnName, $currentColumns)) {
-                // Column does not exist, add it
+                // Column does not exist, add it. A key clause is correct here
+                // because there is no existing key to collide with.
                 $queries[] = "ADD COLUMN " . $this->convertColumnToSql($newColumn);
             } else {
-                // Column exists, check if it needs to be modified
+                // Column exists, check if it needs to be modified. The key clause
+                // is dropped: the key already exists, and re-declaring it makes
+                // MySQL reject the whole statement.
                 if ($this->needsColumnModification($currentColumns[$columnName], $newColumn)) {
-                    $queries[] = "MODIFY COLUMN " . $this->convertColumnToSql($newColumn);
+                    $queries[] = "MODIFY COLUMN " . $this->convertColumnToSql($newColumn, false);
                 }
             }
         }
