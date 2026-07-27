@@ -20,7 +20,7 @@ class TableUpdateStrategyTest extends TestCase
      * @param array<string, array<string, string|null>> $currentColumns Keyed by column name.
      * @param Column[] $schemaColumns
      */
-    private function buildQuery(array $currentColumns, array $schemaColumns): ?string
+    private function buildQueryAllowingDrops(array $currentColumns, array $schemaColumns): ?string
     {
         $rows = [];
         foreach ($currentColumns as $name => $row) {
@@ -40,7 +40,34 @@ class TableUpdateStrategyTest extends TestCase
         $build = new ReflectionMethod($strategy, 'buildSyncColumnsQuery');
         $build->setAccessible(true);
 
-        return $build->invoke($strategy, $table);
+        return $build->invoke($strategy, $table, true);
+    }
+
+    /**
+     * @param array<string, array<string, string|null>> $currentColumns Keyed by column name.
+     * @param Column[] $schemaColumns
+     */
+    private function buildAdditiveQuery(array $currentColumns, array $schemaColumns): ?string
+    {
+        $rows = [];
+        foreach ($currentColumns as $name => $row) {
+            $rows[] = array_merge(['COLUMN_NAME' => $name], $row);
+        }
+
+        $db = Mockery::mock(DatabaseStrategy::class);
+        $db->shouldReceive('parse')->andReturnUsing(fn (string $q) => $q);
+        $db->shouldReceive('query')->andReturn($rows);
+
+        $table = Mockery::mock(Table::class);
+        $table->shouldReceive('getName')->andReturn('posts');
+        $table->shouldReceive('getAlias')->andReturn('p');
+        $table->shouldReceive('getColumns')->andReturn($schemaColumns);
+
+        $strategy = new TableUpdateStrategy($db);
+        $build = new ReflectionMethod($strategy, 'buildSyncColumnsQuery');
+        $build->setAccessible(true);
+
+        return $build->invoke($strategy, $table, false);
     }
 
     /**
@@ -51,7 +78,7 @@ class TableUpdateStrategyTest extends TestCase
      */
     public function test_integer_display_width_is_not_a_difference(): void
     {
-        $query = $this->buildQuery(
+        $query = $this->buildQueryAllowingDrops(
             ['views' => ['COLUMN_TYPE' => 'int', 'IS_NULLABLE' => 'YES', 'COLUMN_DEFAULT' => null, 'EXTRA' => '']],
             [new Column('views', 'INT', [11])]
         );
@@ -61,7 +88,7 @@ class TableUpdateStrategyTest extends TestCase
 
     public function test_bigint_display_width_is_not_a_difference(): void
     {
-        $query = $this->buildQuery(
+        $query = $this->buildQueryAllowingDrops(
             ['size' => ['COLUMN_TYPE' => 'bigint', 'IS_NULLABLE' => 'YES', 'COLUMN_DEFAULT' => null, 'EXTRA' => '']],
             [new Column('size', 'BIGINT', [20])]
         );
@@ -76,7 +103,7 @@ class TableUpdateStrategyTest extends TestCase
      */
     public function test_widening_an_int_to_bigint_is_still_detected(): void
     {
-        $query = $this->buildQuery(
+        $query = $this->buildQueryAllowingDrops(
             ['id' => ['COLUMN_TYPE' => 'int', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => null, 'EXTRA' => '']],
             [new Column('id', 'BIGINT', null, 'NOT NULL')]
         );
@@ -94,7 +121,7 @@ class TableUpdateStrategyTest extends TestCase
      */
     public function test_modify_does_not_re_declare_the_primary_key(): void
     {
-        $query = $this->buildQuery(
+        $query = $this->buildQueryAllowingDrops(
             ['id' => ['COLUMN_TYPE' => 'int', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => null, 'EXTRA' => 'auto_increment']],
             [(new PrimaryKeyFactory())->toColumn()]
         );
@@ -111,7 +138,7 @@ class TableUpdateStrategyTest extends TestCase
      */
     public function test_adding_a_new_primary_key_column_keeps_the_key_clause(): void
     {
-        $query = $this->buildQuery(
+        $query = $this->buildQueryAllowingDrops(
             [],
             [(new PrimaryKeyFactory())->toColumn()]
         );
@@ -123,7 +150,7 @@ class TableUpdateStrategyTest extends TestCase
 
     public function test_a_genuinely_new_column_is_added(): void
     {
-        $query = $this->buildQuery(
+        $query = $this->buildQueryAllowingDrops(
             ['title' => ['COLUMN_TYPE' => 'varchar(255)', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => null, 'EXTRA' => '']],
             [
                 new Column('title', 'VARCHAR', [255], 'NOT NULL'),
@@ -136,9 +163,10 @@ class TableUpdateStrategyTest extends TestCase
         $this->assertStringNotContainsString('`title`', $query, 'An unchanged column must be left alone.');
     }
 
-    public function test_a_removed_column_is_dropped(): void
+    /** Only the explicit drop-allowing path removes a column. */
+    public function test_a_removed_column_is_dropped_when_drops_are_allowed(): void
     {
-        $query = $this->buildQuery(
+        $query = $this->buildQueryAllowingDrops(
             [
                 'title' => ['COLUMN_TYPE' => 'varchar(255)', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => null, 'EXTRA' => ''],
                 'legacy' => ['COLUMN_TYPE' => 'varchar(255)', 'IS_NULLABLE' => 'YES', 'COLUMN_DEFAULT' => null, 'EXTRA' => ''],
@@ -152,7 +180,7 @@ class TableUpdateStrategyTest extends TestCase
 
     public function test_a_varchar_length_change_is_detected(): void
     {
-        $query = $this->buildQuery(
+        $query = $this->buildQueryAllowingDrops(
             ['title' => ['COLUMN_TYPE' => 'varchar(100)', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => null, 'EXTRA' => '']],
             [new Column('title', 'VARCHAR', [255], 'NOT NULL')]
         );
@@ -167,7 +195,7 @@ class TableUpdateStrategyTest extends TestCase
      */
     public function test_a_table_in_sync_produces_no_query(): void
     {
-        $query = $this->buildQuery(
+        $query = $this->buildQueryAllowingDrops(
             [
                 'id' => ['COLUMN_TYPE' => 'bigint', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => null, 'EXTRA' => 'auto_increment'],
                 'title' => ['COLUMN_TYPE' => 'varchar(255)', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => null, 'EXTRA' => ''],
@@ -181,5 +209,89 @@ class TableUpdateStrategyTest extends TestCase
         );
 
         $this->assertNull($query);
+    }
+
+    // --- additive-only synchronisation ---
+
+    /**
+     * The reason this mode exists. A container startup script has to bring the
+     * schema forward before serving traffic, but a deploy is not always ahead of
+     * the database: a rollback, a canary, or two services sharing one database
+     * all mean the code can be missing a column the database legitimately holds.
+     * Dropping it there destroys data, so dropping must stay a deliberate act.
+     */
+    public function test_additive_mode_never_drops_a_column_the_schema_does_not_declare(): void
+    {
+        $query = $this->buildAdditiveQuery(
+            [
+                'title' => ['COLUMN_TYPE' => 'varchar(255)', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => null, 'EXTRA' => ''],
+                'writtenByNewerCode' => ['COLUMN_TYPE' => 'varchar(255)', 'IS_NULLABLE' => 'YES', 'COLUMN_DEFAULT' => null, 'EXTRA' => ''],
+            ],
+            [new Column('title', 'VARCHAR', [255], 'NOT NULL')]
+        );
+
+        $this->assertNull($query, 'An unknown column is left alone, so there is nothing to do.');
+    }
+
+    public function test_additive_mode_still_adds_a_missing_column(): void
+    {
+        $query = $this->buildAdditiveQuery(
+            ['title' => ['COLUMN_TYPE' => 'varchar(255)', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => null, 'EXTRA' => '']],
+            [
+                new Column('title', 'VARCHAR', [255], 'NOT NULL'),
+                new Column('trustScore', 'INT', [11], 'NOT NULL', 'DEFAULT 500'),
+            ]
+        );
+
+        $this->assertNotNull($query);
+        $this->assertStringContainsString('ADD COLUMN `trustScore` INT(11)', $query);
+        $this->assertStringNotContainsString('DROP COLUMN', $query);
+    }
+
+    public function test_additive_mode_still_widens_a_changed_column(): void
+    {
+        $query = $this->buildAdditiveQuery(
+            ['title' => ['COLUMN_TYPE' => 'varchar(100)', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => null, 'EXTRA' => '']],
+            [new Column('title', 'VARCHAR', [255], 'NOT NULL')]
+        );
+
+        $this->assertNotNull($query);
+        $this->assertStringContainsString('MODIFY COLUMN `title` VARCHAR(255)', $query);
+    }
+
+    public function test_additive_mode_adds_and_keeps_an_unknown_column_in_the_same_table(): void
+    {
+        $query = $this->buildAdditiveQuery(
+            [
+                'title' => ['COLUMN_TYPE' => 'varchar(255)', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => null, 'EXTRA' => ''],
+                'writtenByNewerCode' => ['COLUMN_TYPE' => 'text', 'IS_NULLABLE' => 'YES', 'COLUMN_DEFAULT' => null, 'EXTRA' => ''],
+            ],
+            [
+                new Column('title', 'VARCHAR', [255], 'NOT NULL'),
+                new Column('reviewedAt', 'DATETIME'),
+            ]
+        );
+
+        $this->assertNotNull($query);
+        $this->assertStringContainsString('ADD COLUMN `reviewedAt` DATETIME', $query);
+        $this->assertStringNotContainsString('writtenByNewerCode', $query);
+    }
+
+    /**
+     * The default must not drop. This is the guard: syncColumns runs unattended
+     * from a container startup script, and a deploy is not always ahead of its
+     * database.
+     */
+    public function test_the_default_does_not_drop_a_removed_column(): void
+    {
+        $query = $this->buildAdditiveQuery(
+            [
+                'title' => ['COLUMN_TYPE' => 'varchar(255)', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => null, 'EXTRA' => ''],
+                'legacy' => ['COLUMN_TYPE' => 'varchar(255)', 'IS_NULLABLE' => 'YES', 'COLUMN_DEFAULT' => null, 'EXTRA' => ''],
+            ],
+            [new Column('title', 'VARCHAR', [255], 'NOT NULL')]
+        );
+
+        $this->assertNull($query, 'The default leaves an undeclared column alone.');
     }
 }

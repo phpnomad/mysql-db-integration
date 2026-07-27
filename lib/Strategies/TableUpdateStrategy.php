@@ -19,6 +19,17 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy
     }
 
     /**
+     * Bring a table's columns in line with its definition, without removing
+     * anything.
+     *
+     * Adds missing columns and modifies changed ones. It does NOT drop a column
+     * the definition no longer declares, because this runs unattended and a
+     * deploy is not always ahead of its database: a rollback, a canary, or two
+     * services sharing one database all mean the running code can be missing a
+     * column the database legitimately holds. Dropping it there destroys data.
+     *
+     * Use {@see syncColumnsAllowingDrops()} when removal is the intent.
+     *
      * @param Table $table
      * @return void
      * @throws TableUpdateFailedException
@@ -26,7 +37,7 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy
     public function syncColumns(Table $table): void
     {
         try {
-            $query = $this->buildSyncColumnsQuery($table);
+            $query = $this->buildSyncColumnsQuery($table, false);
 
             if (!$query) {
                 return;
@@ -46,6 +57,30 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy
      * defined"). Keys are owned by the table's index definitions.
      */
     protected const KEY_ATTRIBUTES = ['PRIMARY KEY', 'UNIQUE KEY', 'UNIQUE'];
+
+    /**
+     * Sync columns and drop any the definition no longer declares.
+     *
+     * Destructive, and deliberately not the default. Only call this when the
+     * caller knows the definition is authoritative for the database it is
+     * pointed at, which an unattended deploy cannot know.
+     *
+     * @throws TableUpdateFailedException
+     */
+    public function syncColumnsAllowingDrops(Table $table): void
+    {
+        try {
+            $query = $this->buildSyncColumnsQuery($table, true);
+
+            if (!$query) {
+                return;
+            }
+
+            $this->db->query($query);
+        } catch (\Exception $e) {
+            throw new TableUpdateFailedException($e);
+        }
+    }
 
     protected function convertColumnToSql(Column $column, bool $includeKeys = true): string
     {
@@ -154,7 +189,11 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy
      * @param Table $table
      * @return string|null
      */
-    protected function buildSyncColumnsQuery(Table $table): ?string
+    /**
+     * @param bool $allowDrops When false, a column the schema no longer declares
+     *   is left in place rather than dropped.
+     */
+    protected function buildSyncColumnsQuery(Table $table, bool $allowDrops = true): ?string
     {
         $currentColumns = $this->getCurrentColumns($table->getName());
         $newColumns = $table->getColumns();
@@ -177,12 +216,14 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy
             }
         }
 
-        $newColumnNames = Arr::pluck($newColumns, 'name');
+        if ($allowDrops) {
+            $newColumnNames = Arr::pluck($newColumns, 'name');
 
-        // Drop columns that no longer exist in the new definition
-        foreach ($currentColumns as $currentColumnName => $currentColumnData) {
-            if (!in_array($currentColumnName, $newColumnNames)) {
-                $queries[] = "DROP COLUMN `{$currentColumnName}`";
+            // Drop columns that no longer exist in the new definition
+            foreach ($currentColumns as $currentColumnName => $currentColumnData) {
+                if (!in_array($currentColumnName, $newColumnNames)) {
+                    $queries[] = "DROP COLUMN `{$currentColumnName}`";
+                }
             }
         }
 
