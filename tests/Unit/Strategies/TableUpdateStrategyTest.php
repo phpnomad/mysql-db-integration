@@ -71,6 +71,18 @@ class TableUpdateStrategyTest extends TestCase
     }
 
     /**
+     * @param array<string, string|null> $currentColumnData
+     */
+    private function needsColumnModification(array $currentColumnData, Column $newColumn): bool
+    {
+        $strategy = new TableUpdateStrategy(Mockery::mock(DatabaseStrategy::class));
+        $needsModification = new ReflectionMethod($strategy, 'needsColumnModification');
+        $needsModification->setAccessible(true);
+
+        return $needsModification->invoke($strategy, $currentColumnData, $newColumn);
+    }
+
+    /**
      * MySQL 8.0.17 removed display widths from integer types, so the schema's
      * INT(11) reads back as plain `int`. Treating that as a difference makes
      * every integer column in the database look perpetually out of date, and
@@ -94,6 +106,66 @@ class TableUpdateStrategyTest extends TestCase
         );
 
         $this->assertNull($query);
+    }
+
+    public function test_nullable_declaration_modifies_a_not_null_live_column(): void
+    {
+        $query = $this->buildQueryAllowingDrops(
+            ['fleetId' => ['COLUMN_TYPE' => 'bigint', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => null, 'EXTRA' => '']],
+            [new Column('fleetId', 'BIGINT')]
+        );
+
+        $this->assertNotNull($query);
+        $this->assertStringContainsString('MODIFY COLUMN `fleetId` BIGINT', $query);
+    }
+
+    public function test_not_null_declaration_modifies_a_nullable_live_column(): void
+    {
+        $query = $this->buildQueryAllowingDrops(
+            ['fleetId' => ['COLUMN_TYPE' => 'bigint', 'IS_NULLABLE' => 'YES', 'COLUMN_DEFAULT' => null, 'EXTRA' => '']],
+            [new Column('fleetId', 'BIGINT', null, ' not null ')]
+        );
+
+        $this->assertNotNull($query);
+        $this->assertStringContainsString('MODIFY COLUMN `fleetId` BIGINT', $query);
+    }
+
+    public function test_not_null_traveling_with_a_default_still_reads_as_not_null(): void
+    {
+        // Attributes are free strings; "NOT NULL DEFAULT 'human'" is one
+        // attribute. Equality matching read it as nullable and emitted a
+        // MODIFY that dropped the constraint.
+        $query = $this->buildQueryAllowingDrops(
+            ['actorType' => ['COLUMN_TYPE' => 'varchar(20)', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => 'human', 'EXTRA' => '']],
+            [new Column('actorType', 'VARCHAR', [20], "NOT NULL DEFAULT 'human'")]
+        );
+
+        $this->assertNull($query);
+    }
+
+    public function test_matching_type_and_nullability_produces_no_query(): void
+    {
+        $query = $this->buildQueryAllowingDrops(
+            ['fleetId' => ['COLUMN_TYPE' => 'bigint', 'IS_NULLABLE' => 'NO', 'COLUMN_DEFAULT' => null, 'EXTRA' => '']],
+            [new Column('fleetId', 'BIGINT', null, 'NOT NULL')]
+        );
+
+        $this->assertNull($query);
+    }
+
+    /**
+     * Keep this assertion on the comparison result itself. It fails if the
+     * nullability comparison is removed while INFORMATION_SCHEMA still fetches
+     * IS_NULLABLE.
+     */
+    public function test_nullability_only_drift_requires_modification(): void
+    {
+        $needsModification = $this->needsColumnModification(
+            ['COLUMN_TYPE' => 'bigint', 'IS_NULLABLE' => 'NO'],
+            new Column('fleetId', 'BIGINT')
+        );
+
+        $this->assertTrue($needsModification);
     }
 
     /**
@@ -202,7 +274,7 @@ class TableUpdateStrategyTest extends TestCase
                 'views' => ['COLUMN_TYPE' => 'int', 'IS_NULLABLE' => 'YES', 'COLUMN_DEFAULT' => null, 'EXTRA' => ''],
             ],
             [
-                (new PrimaryKeyFactory())->toColumn(),
+                new Column('id', 'BIGINT', null, 'AUTO_INCREMENT', 'PRIMARY KEY', 'NOT NULL'),
                 new Column('title', 'VARCHAR', [255], 'NOT NULL'),
                 new Column('views', 'INT', [11]),
             ]
