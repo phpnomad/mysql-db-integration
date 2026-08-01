@@ -144,11 +144,21 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy
     {
         $currentType = $this->normalizeType((string) $currentColumnData['COLUMN_TYPE']);
         $newType = $this->normalizeType($this->declaredType($newColumn));
+        $currentNullable = strtoupper(trim((string) $currentColumnData['IS_NULLABLE'])) === 'YES';
+        // Attributes are free strings and NOT NULL often travels with company
+        // ("NOT NULL DEFAULT 'human'"), so containment, not equality, decides.
+        $newNullable = true;
+        foreach ($newColumn->getAttributes() as $attribute) {
+            if (str_contains(strtoupper((string) $attribute), 'NOT NULL')) {
+                $newNullable = false;
+                break;
+            }
+        }
 
         // Compare for equality, not containment. `bigint` contains `int`, so a
         // containment check reported a genuine int-to-bigint widening as already
         // satisfied and skipped it.
-        return $currentType !== $newType;
+        return $currentType !== $newType || $currentNullable !== $newNullable;
     }
 
     /** The type as written in the schema, including any arguments. */
