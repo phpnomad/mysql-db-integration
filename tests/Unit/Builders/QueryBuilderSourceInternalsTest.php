@@ -56,6 +56,22 @@ final class QueryBuilderSourceInternalsTest extends TestCase
         $builder->validateSource($source);
     }
 
+    public function testLeftJoinUsesThePrependFieldExtensionPointForTheJoinedField(): void
+    {
+        $builder = (new JoinHookQueryBuilder())->from($this->table('scores', 's'));
+        $builder->leftJoin($this->table('programs', 'p'), 'programId', 'id');
+
+        self::assertSame(1, $builder->getJoinedFieldHookCalls());
+    }
+
+    public function testRightJoinUsesThePrependFieldExtensionPointForTheJoinedField(): void
+    {
+        $builder = (new JoinHookQueryBuilder())->from($this->table('scores', 's'));
+        $builder->rightJoin($this->table('programs', 'p'), 'programId', 'id');
+
+        self::assertSame(1, $builder->getJoinedFieldHookCalls());
+    }
+
     private function table(string $name, string $alias): Table
     {
         $table = $this->createMock(Table::class);
@@ -91,5 +107,24 @@ final class InspectableQueryBuilder extends QueryBuilder
     public function validateSource(array $source): void
     {
         $this->assertQuerySourceIsUnchanged($source);
+    }
+}
+
+final class JoinHookQueryBuilder extends QueryBuilder
+{
+    private int $joinedFieldHookCalls = 0;
+
+    protected function prependField(string $field, ?Table $table = null): string
+    {
+        if ($table !== null) {
+            $this->joinedFieldHookCalls++;
+        }
+
+        return parent::prependField($field, $table);
+    }
+
+    public function getJoinedFieldHookCalls(): int
+    {
+        return $this->joinedFieldHookCalls;
     }
 }

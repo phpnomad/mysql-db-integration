@@ -120,7 +120,7 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
             'ON',
             $this->prependField($column),
             '=',
-            $source['alias'] . '.' . $onColumn,
+            $this->prependField($onColumn, $table),
         ];
 
         if (!empty($this->join)) {
@@ -147,7 +147,7 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
             'ON',
             $this->prependField($column),
             '=',
-            $source['alias'] . '.' . $onColumn,
+            $this->prependField($onColumn, $table),
         ];
 
         if (!empty($this->join)) {
