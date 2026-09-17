@@ -26,10 +26,10 @@ getReferencedTables throws QueryBuilderException before build or execution.
 This refusal avoids reporting a changed descriptor for unchanged SQL. It applies
 to the root and both join directions.
 
-One implementation packet owns this existing class. The public acceptance
+One implementer will add this method to the existing class. The public acceptance
 tests verify metadata against built SQL and every lifecycle above. These pure
 builder tests need no database. Adapter integration tests must separately run
-paired cases through production bindings and real MySQL: a declared root and
+two cases through the application's real bindings and MySQL: a declared root and
 join return seeded rows, while the same flow with an undeclared join fails
 before SQL execution. The harness must use an owned schema and reset database
 and cache state. This packet is not that integration proof and does not enable
