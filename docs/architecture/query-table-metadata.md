@@ -24,13 +24,16 @@ by the shared contract. The class compares each root and join descriptor's name
 and alias with the values captured in the actual SQL clause. If either changed,
 getReferencedTables throws QueryBuilderException before build or execution.
 This refusal avoids reporting a changed descriptor for unchanged SQL. It applies
-to the root and both join directions. No new snapshot Table class is required.
+to the root and both join directions.
 
 One implementation packet owns this existing class. The public acceptance
 tests verify metadata against built SQL and every lifecycle above. These pure
-builder tests need no database. Adapter integration tests must separately prove
-that undeclared joins are rejected before real execution. This packet is not
-that integration proof and does not enable coordinated writes.
+builder tests need no database. Adapter integration tests must separately run
+paired cases through production bindings and real MySQL: a declared root and
+join return seeded rows, while the same flow with an undeclared join fails
+before SQL execution. The harness must use an owned schema and reset database
+and cache state. This packet is not that integration proof and does not enable
+coordinated writes.
 
 The Composer branch alias is a temporary cross-repository review dependency.
 Release requires a compatible published database package and an ordinary version
