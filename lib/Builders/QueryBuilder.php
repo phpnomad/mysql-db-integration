@@ -41,10 +41,28 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
     protected array $groupBy = [];
     protected array $join = [];
 
+    /** @var array{table: Table, name: string, alias: string}|null */
+    protected ?array $rootQuerySource = null;
+
+    /** @var list<array{table: Table, name: string, alias: string}> */
+    protected array $joinedQuerySources = [];
+
     /** @inheritDoc */
     public function getReferencedTables(): array
     {
-        return [];
+        if (empty($this->from) || $this->rootQuerySource === null) {
+            return [];
+        }
+
+        $sources = array_merge([$this->rootQuerySource], $this->joinedQuerySources);
+        $tables = [];
+
+        foreach ($sources as $source) {
+            $this->assertQuerySourceIsUnchanged($source);
+            $tables[] = $source['table'];
+        }
+
+        return $tables;
     }
 
     /** @inheritDoc */
@@ -70,7 +88,13 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
     public function from(Table $table)
     {
         $this->useTable($table);
-        $this->from = ['FROM', $table->getName(), 'AS', $table->getAlias()];
+        $this->rootQuerySource = $this->captureQuerySource($table);
+        $this->from = [
+            'FROM',
+            $this->rootQuerySource['name'],
+            'AS',
+            $this->rootQuerySource['alias'],
+        ];
 
         return $this;
     }
@@ -87,15 +111,16 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
     /** @inheritDoc */
     public function leftJoin(Table $table, string $column, string $onColumn)
     {
+        $source = $this->captureQuerySource($table);
         $join = [
             'LEFT JOIN',
-            $table->getName(),
+            $source['name'],
             'AS',
-            $table->getAlias(),
+            $source['alias'],
             'ON',
             $this->prependField($column),
             '=',
-            $this->prependField($onColumn, $table),
+            $source['alias'] . '.' . $onColumn,
         ];
 
         if (!empty($this->join)) {
@@ -104,6 +129,8 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
             // Build join
             $this->join = $join;
         }
+
+        $this->joinedQuerySources[] = $source;
 
         return $this;
     }
@@ -111,15 +138,16 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
     /** @inheritDoc */
     public function rightJoin(Table $table, string $column, string $onColumn)
     {
+        $source = $this->captureQuerySource($table);
         $join = [
             'RIGHT JOIN',
-            $table->getName(),
+            $source['name'],
             'AS',
-            $table->getAlias(),
+            $source['alias'],
             'ON',
             $this->prependField($column),
             '=',
-            $this->prependField($onColumn, $table),
+            $source['alias'] . '.' . $onColumn,
         ];
 
         if (!empty($this->join)) {
@@ -128,6 +156,8 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
             // Build join
             $this->join = $join;
         }
+
+        $this->joinedQuerySources[] = $source;
 
         return $this;
     }
@@ -302,6 +332,8 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
         $this->orderBy = [];
         $this->groupBy = [];
         $this->join = [];
+        $this->rootQuerySource = null;
+        $this->joinedQuerySources = [];
 
         return $this;
     }
@@ -312,12 +344,41 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
         $clauses[] = $clause;
 
         foreach ($clauses as $clauseToReset) {
-            if (isset($this->$clauseToReset)) {
+            $isSourceMetadata = in_array($clauseToReset, ['rootQuerySource', 'joinedQuerySources'], true);
+            if (!$isSourceMetadata && isset($this->$clauseToReset)) {
                 $this->$clauseToReset = [];
+            }
+
+            if ($clauseToReset === 'from') {
+                $this->rootQuerySource = null;
+            } elseif ($clauseToReset === 'join') {
+                $this->joinedQuerySources = [];
             }
         }
 
         return $this;
+    }
+
+    /**
+     * @return array{table: Table, name: string, alias: string}
+     */
+    protected function captureQuerySource(Table $table): array
+    {
+        return [
+            'table' => $table,
+            'name' => $table->getName(),
+            'alias' => $table->getAlias(),
+        ];
+    }
+
+    /**
+     * @param array{table: Table, name: string, alias: string} $source
+     */
+    protected function assertQuerySourceIsUnchanged(array $source): void
+    {
+        if ($source['table']->getName() !== $source['name'] || $source['table']->getAlias() !== $source['alias']) {
+            throw new QueryBuilderException('A table source changed after it was added to the query.');
+        }
     }
 
     /**

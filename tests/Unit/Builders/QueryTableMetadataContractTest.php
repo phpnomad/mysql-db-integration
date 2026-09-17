@@ -10,12 +10,6 @@ use PHPNomad\MySql\Integration\Tests\TestCase;
 
 final class QueryTableMetadataContractTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-        $this->markTestIncomplete('Query table metadata implementation packet is pending.');
-    }
-
     public function testFieldContextAloneDoesNotCreateAQuerySource(): void
     {
         $builder = new QueryBuilder();
