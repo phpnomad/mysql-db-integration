@@ -10,6 +10,11 @@ use PHPNomad\MySql\Integration\Tests\TestCase;
 
 final class QueryTableMetadataContractTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+    }
+
     public function testFieldContextAloneDoesNotCreateAQuerySource(): void
     {
         $builder = new QueryBuilder();
