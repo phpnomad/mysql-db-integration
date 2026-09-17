@@ -4,13 +4,14 @@ namespace PHPNomad\MySql\Integration\Builders;
 
 use PHPNomad\Database\Exceptions\QueryBuilderException;
 use PHPNomad\Database\Interfaces\ClauseBuilder;
+use PHPNomad\Database\Interfaces\HasQueryTables;
 use PHPNomad\Database\Interfaces\QueryBuilder as QueryBuilderInterface;
 use PHPNomad\Database\Interfaces\Table;
 use PHPNomad\Database\Traits\WithPrependedFields;
 use PHPNomad\MySql\Integration\Facades\Database;
 use PHPNomad\Utils\Helpers\Arr;
 
-class QueryBuilder implements QueryBuilderInterface
+class QueryBuilder implements QueryBuilderInterface, HasQueryTables
 {
     use WithPrependedFields;
 
@@ -39,6 +40,12 @@ class QueryBuilder implements QueryBuilderInterface
     protected ?ClauseBuilder $clauseBuilder = null;
     protected array $groupBy = [];
     protected array $join = [];
+
+    /** @inheritDoc */
+    public function getReferencedTables(): array
+    {
+        return [];
+    }
 
     /** @inheritDoc */
     public function select(string $field, string ...$fields)
