@@ -128,6 +128,47 @@ final class QueryTableMetadataContractTest extends TestCase
         self::assertSame([['copy', 'c']], $this->sources($copy));
     }
 
+    /** @dataProvider descriptorMutations */
+    public function testChangedDescriptorsAreRejectedBeforeBuild(string $source, string $field): void
+    {
+        $name = 'captured_table';
+        $alias = 'captured_alias';
+        $table = $this->createMock(Table::class);
+        $table->method('getName')->willReturnCallback(static function () use (&$name): string {
+            return $name;
+        });
+        $table->method('getAlias')->willReturnCallback(static function () use (&$alias): string {
+            return $alias;
+        });
+        $builder = new QueryBuilder();
+        if ($source === 'root') {
+            $builder->from($table)->select('*');
+        } else {
+            $builder->from($this->table('scores', 's'))->select('*');
+            $method = $source === 'left' ? 'leftJoin' : 'rightJoin';
+            $builder->$method($table, 'id', 'id');
+        }
+
+        if ($field === 'name') {
+            $name = 'different_table';
+        } else {
+            $alias = 'different_alias';
+        }
+
+        $this->expectException(QueryBuilderException::class);
+        $builder->getReferencedTables();
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function descriptorMutations(): array
+    {
+        return [
+            'root name' => ['root', 'name'], 'root alias' => ['root', 'alias'],
+            'left name' => ['left', 'name'], 'left alias' => ['left', 'alias'],
+            'right name' => ['right', 'name'], 'right alias' => ['right', 'alias'],
+        ];
+    }
+
     private function joinedBuilder(): QueryBuilder
     {
         return (new QueryBuilder())->from($this->table('scores', 's'))->select('*')

@@ -20,8 +20,11 @@ or another non-source clause does not remove sources. An unknown clause name
 must not clear metadata independently of the SQL. Successful build and existing
 failed-build resets leave no sources. A cloned builder has independent clause
 and metadata state. Table descriptors remain stable for an operation as required
-by the shared contract. The class may retain table objects internally, but the
-reported name and alias must match the actual clauses that build will consume.
+by the shared contract. The class compares each root and join descriptor's name
+and alias with the values captured in the actual SQL clause. If either changed,
+getReferencedTables throws QueryBuilderException before build or execution.
+This refusal avoids reporting a changed descriptor for unchanged SQL. It applies
+to the root and both join directions. No new snapshot Table class is required.
 
 One implementation packet owns this existing class. The public acceptance
 tests verify metadata against built SQL and every lifecycle above. These pure
