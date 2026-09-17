@@ -116,6 +116,35 @@ final class QueryTableMetadataContractTest extends TestCase
         self::assertSame([], $builder->getReferencedTables());
     }
 
+    /** @dataProvider buildOutcomes */
+    public function testReuseAfterBuildDoesNotResurrectOldRootOrJoins(bool $failFirstBuild): void
+    {
+        $builder = $this->joinedBuilder();
+        if ($failFirstBuild) {
+            $builder->resetClauses('select');
+            try {
+                $builder->build();
+                self::fail('A missing select must fail.');
+            } catch (QueryBuilderException $failure) {
+                self::assertSame('Missing select field', $failure->getMessage());
+            }
+        } else {
+            $builder->build();
+        }
+        $builder->from($this->table('fresh_root', 'f'))->select('*')
+            ->leftJoin($this->table('fresh_join', 'j'), 'id', 'id');
+
+        self::assertSame([['fresh_root', 'f'], ['fresh_join', 'j']], $this->sources($builder));
+        self::assertSame('SELECT * FROM fresh_root AS f LEFT JOIN fresh_join AS j ON f.id = j.id', $builder->build());
+        self::assertSame([], $builder->getReferencedTables());
+    }
+
+    /** @return array<string, array{bool}> */
+    public static function buildOutcomes(): array
+    {
+        return ['successful build' => [false], 'failed build' => [true]];
+    }
+
     public function testClonedBuildersHaveIndependentSourceState(): void
     {
         $original = $this->joinedBuilder();
