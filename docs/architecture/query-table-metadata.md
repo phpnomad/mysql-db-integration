@@ -1,6 +1,6 @@
 # Query table metadata
 
-Status: architecture stub. Ordinary query behavior remains compatible.
+Status: metadata implemented. Ordinary query behavior remains compatible.
 
 The MySQL QueryBuilder opts into PHPNomad's HasQueryTables interface. Its new
 method reports the root FROM table followed by each joined table, in query
@@ -26,8 +26,8 @@ getReferencedTables throws QueryBuilderException before build or execution.
 This refusal avoids reporting a changed descriptor for unchanged SQL. It applies
 to the root and both join directions.
 
-One implementer will add this method to the existing class. The public acceptance
-tests verify metadata against built SQL and every lifecycle above. These pure
+The public acceptance tests verify metadata against built SQL and every lifecycle
+above. These pure
 builder tests need no database. Adapter integration tests must separately run
 two cases through the application's real bindings and MySQL: a declared root and
 join return seeded rows, while the same flow with an undeclared join fails
