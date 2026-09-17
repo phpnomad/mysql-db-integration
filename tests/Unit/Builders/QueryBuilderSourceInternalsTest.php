@@ -58,18 +58,24 @@ final class QueryBuilderSourceInternalsTest extends TestCase
 
     public function testLeftJoinUsesThePrependFieldExtensionPointForTheJoinedField(): void
     {
-        $builder = (new JoinHookQueryBuilder())->from($this->table('scores', 's'));
+        $builder = (new JoinHookQueryBuilder())->from($this->table('scores', 's'))->select('*');
         $builder->leftJoin($this->table('programs', 'p'), 'programId', 'id');
 
-        self::assertSame(1, $builder->getJoinedFieldHookCalls());
+        self::assertSame(
+            'SELECT * FROM scores AS s LEFT JOIN programs AS p ON s.programId = JOINED_FIELD(p.id)',
+            $builder->build()
+        );
     }
 
     public function testRightJoinUsesThePrependFieldExtensionPointForTheJoinedField(): void
     {
-        $builder = (new JoinHookQueryBuilder())->from($this->table('scores', 's'));
+        $builder = (new JoinHookQueryBuilder())->from($this->table('scores', 's'))->select('*');
         $builder->rightJoin($this->table('programs', 'p'), 'programId', 'id');
 
-        self::assertSame(1, $builder->getJoinedFieldHookCalls());
+        self::assertSame(
+            'SELECT * FROM scores AS s RIGHT JOIN programs AS p ON s.programId = JOINED_FIELD(p.id)',
+            $builder->build()
+        );
     }
 
     private function table(string $name, string $alias): Table
@@ -112,19 +118,12 @@ final class InspectableQueryBuilder extends QueryBuilder
 
 final class JoinHookQueryBuilder extends QueryBuilder
 {
-    private int $joinedFieldHookCalls = 0;
-
     protected function prependField(string $field, ?Table $table = null): string
     {
         if ($table !== null) {
-            $this->joinedFieldHookCalls++;
+            return 'JOINED_FIELD(' . parent::prependField($field, $table) . ')';
         }
 
         return parent::prependField($field, $table);
-    }
-
-    public function getJoinedFieldHookCalls(): int
-    {
-        return $this->joinedFieldHookCalls;
     }
 }
