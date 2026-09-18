@@ -56,6 +56,62 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
     }
 
     /** @dataProvider inactiveCoordinationBoundaries */
+    public function testInternalFailureEnteredWithoutOwnershipCannotProveRollback(string $boundary, int $mode): void
+    {
+        $pdo = $this->connect(InactiveCoordinationRollbackPdo::class);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, $mode);
+        $pdo->arm($boundary, $this->effects->getName());
+        $pdo->requireOwnedEntry = false;
+        $this->usePrimary($pdo);
+        $name = $this->parents->getName();
+        $descriptorCalls = 0;
+        $descriptor = $this->createMock(Table::class);
+        $descriptor->method('getFieldsForIdentity')->willReturn(['tenantId', 'id']);
+        $descriptor->method('getName')->willReturnCallback(function () use ($name, &$descriptorCalls): string {
+            if ($this->primary->inTransaction()) {
+                $descriptorCalls++;
+                $this->primary->exec('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 99)');
+                $this->primary->commit();
+            }
+            return $name;
+        });
+        $calls = 0;
+        $caught = null;
+        try {
+            $this->strategy->coordinate($descriptor, ['tenantId' => 1, 'id' => 7], [$this->parents, $this->effects],
+                static function () use (&$calls): void { $calls++; });
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        }
+        self::assertInstanceOf(CoordinatedOperationCleanupFailedException::class, $caught);
+        self::assertNotInstanceOf(CoordinatedOperationConflictException::class, $caught);
+        $original = $caught->getOperationFailure();
+        self::assertInstanceOf(DatastoreErrorException::class, $caught->getPrevious());
+        self::assertSame(1, $descriptorCalls, 'The descriptor must create the committed ownership-loss hazard.');
+        self::assertSame(0, $calls);
+        self::assertFalse($pdo->inTransaction());
+        self::assertSame([['id' => '1', 'score' => '99']], $this->visibleEffects());
+        self::assertLessThanOrEqual(1, $pdo->injectedFailures);
+        if ($pdo->injectedFailures === 1) {
+            self::assertTrue($pdo->inactiveAtFailure);
+            self::assertInstanceOf(PDOException::class, $original);
+            self::assertSame(['40001', 1213, 'Injected coordination failure without owned entry'], $original->errorInfo);
+            if ($mode === PDO::ERRMODE_EXCEPTION) {
+                self::assertSame($pdo->faultCause, $original);
+            }
+        } else {
+            // A stricter adapter may refuse before issuing the unowned statement.
+            self::assertInstanceOf(DatastoreErrorException::class, $original);
+            self::assertNull($pdo->faultCause);
+        }
+        $this->assertFailureLog('rollback', 'unknown', false, DatastoreErrorException::class, priorFailure: [
+            'phase' => 'coordination', 'causeClass' => get_class($original),
+            'sqlState' => $pdo->injectedFailures === 1 ? '40001' : null,
+            'driverCode' => $pdo->injectedFailures === 1 ? 1213 : null,
+        ]);
+    }
+
+    /** @dataProvider inactiveCoordinationBoundaries */
     public function testPriorCoordinationEvidenceCannotAuthorizeTheSameFailureAfterALaterCommit(string $boundary, int $mode): void
     {
         $pdo = $this->connect(InactiveCoordinationRollbackPdo::class);

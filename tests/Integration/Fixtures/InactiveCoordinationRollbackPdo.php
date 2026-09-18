@@ -7,7 +7,7 @@ use PDOException;
 use PDOStatement;
 use RuntimeException;
 
-/** Injects an inactive failure at one real owned driver boundary. */
+/** Injects an inactive failure at one selected real driver boundary. */
 final class InactiveCoordinationRollbackPdo extends PDO
 {
     public ?string $faultBoundary = null;
@@ -16,6 +16,7 @@ final class InactiveCoordinationRollbackPdo extends PDO
     public int $injectedFailures = 0;
     public ?int $visibleBeforeAbort = null;
     public bool $inactiveAtFailure = false;
+    public bool $requireOwnedEntry = true;
 
     public function arm(string $boundary, string $witnessTable): void
     {
@@ -46,26 +47,31 @@ final class InactiveCoordinationRollbackPdo extends PDO
     /** Returns true only for the silent-mode injected failure. */
     public function failOwnedBoundary(string $boundary): bool
     {
-        if ($this->faultBoundary !== $boundary || !$this->inTransaction()) {
+        if ($this->faultBoundary !== $boundary || $this->requireOwnedEntry !== $this->inTransaction()) {
             return false;
         }
         $this->faultBoundary = null;
-        $table = '`' . str_replace('`', '``', $this->witnessTable) . '`';
-        if (parent::exec('INSERT INTO ' . $table . ' VALUES (1, 12)') !== 1) {
-            throw new RuntimeException('The fixture must create a rollback witness.');
-        }
-        $statement = parent::query('SELECT score FROM ' . $table . ' WHERE id = 1');
-        if ($statement === false) {
-            throw new RuntimeException('The fixture must observe its rollback witness.');
-        }
-        $this->visibleBeforeAbort = (int) $statement->fetchColumn();
-        if (!parent::rollBack()) {
-            throw new RuntimeException('The fixture must physically roll back before injecting the failure.');
+        if ($this->requireOwnedEntry) {
+            $table = '`' . str_replace('`', '``', $this->witnessTable) . '`';
+            if (parent::exec('INSERT INTO ' . $table . ' VALUES (1, 12)') !== 1) {
+                throw new RuntimeException('The fixture must create a rollback witness.');
+            }
+            $statement = parent::query('SELECT score FROM ' . $table . ' WHERE id = 1');
+            if ($statement === false) {
+                throw new RuntimeException('The fixture must observe its rollback witness.');
+            }
+            $this->visibleBeforeAbort = (int) $statement->fetchColumn();
+            if (!parent::rollBack()) {
+                throw new RuntimeException('The fixture must physically roll back before injecting the failure.');
+            }
         }
         $this->inactiveAtFailure = !$this->inTransaction();
         $this->injectedFailures++;
-        $this->faultCause = new PDOException('Injected coordination failure after whole rollback');
-        $this->faultCause->errorInfo = ['40001', 1213, 'Injected coordination failure after whole rollback'];
+        $message = $this->requireOwnedEntry
+            ? 'Injected coordination failure after whole rollback'
+            : 'Injected coordination failure without owned entry';
+        $this->faultCause = new PDOException($message);
+        $this->faultCause->errorInfo = ['40001', 1213, $message];
         if ($this->getAttribute(PDO::ATTR_ERRMODE) === PDO::ERRMODE_SILENT) {
             return true;
         }
