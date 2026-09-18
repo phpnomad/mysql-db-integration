@@ -8,6 +8,7 @@ use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
 use PHPNomad\MySql\Integration\Connections\PdoConnection;
 use PHPNomad\MySql\Integration\Strategies\PdoDatabaseStrategy;
 use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\QueryRecordingPdo;
+use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\QueryRecordingStatement;
 use PHPNomad\MySql\Integration\Tests\TestCase;
 
 /** Real driver contract. Full application binding proof is a separate gate. */
@@ -28,6 +29,7 @@ final class PdoQueryFailureContractTest extends TestCase
             foreach ($this->observedConnections as $pdo) {
                 self::assertSame(0, $pdo->execCalls, 'The strategy must not issue extra driver IO through exec.');
                 self::assertSame(0, $pdo->prepareCalls, 'The strategy must retain the existing query seam without prepared IO.');
+                self::assertSame(0, $pdo->statementExecuteCalls, 'The strategy must not execute a returned statement again.');
             }
         } finally {
             parent::tearDown();
@@ -215,6 +217,7 @@ final class PdoQueryFailureContractTest extends TestCase
                     PDO::ATTR_PERSISTENT => false,
                 ]
             );
+            $pdo->setAttribute(PDO::ATTR_STATEMENT_CLASS, [QueryRecordingStatement::class, [$pdo]]);
             $this->observedConnections[] = $pdo;
             return $pdo;
         } catch (PDOException $failure) {

@@ -12,6 +12,7 @@ final class QueryRecordingPdo extends PDO
     public int $queryCalls = 0;
     public int $execCalls = 0;
     public int $prepareCalls = 0;
+    public int $statementExecuteCalls = 0;
     public ?PDOException $lastQueryFailure = null;
     /** @var array<array-key, mixed> */
     public array $lastQueryErrorInfo = [];
