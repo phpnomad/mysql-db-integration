@@ -171,7 +171,9 @@ try {
     );
     emit('DONE', ['result' => $result, 'callbackCalls' => $callbackCalls, 'logs' => $logger->entries]);
 } catch (Throwable $failure) {
+    $cause = $failure->getPrevious();
     emit('ERROR', ['class' => get_class($failure), 'message' => $failure->getMessage(),
+        'causeClass' => $cause === null ? null : get_class($cause),
         'callbackCalls' => $callbackCalls, 'transactionActive' => $pdo?->inTransaction(), 'logs' => $logger->entries]);
     exit(1);
 }

@@ -282,11 +282,13 @@ final class PdoCoordinationConcurrencyContractTest extends OwnedPdoCoordinationC
         self::assertSame('Coordinated database operation failed.', $entry['message']);
         $context = $entry['context'];
         self::assertIsArray($context);
-        self::assertIsString($context['causeClass']);
-        self::assertNotSame('', $context['causeClass']);
+        $causeClass = $result['causeClass'];
+        self::assertIsString($causeClass);
+        self::assertTrue(is_a($causeClass, \Throwable::class, true),
+            'A conflict must retain a real failure cause independently of its log.');
         $expected = [
             'phase' => $phase, 'tables' => [$this->parents->getName(), $this->effects->getName(), $claims],
-            'outcome' => 'rolled_back', 'retryable' => true, 'causeClass' => $context['causeClass'],
+            'outcome' => 'rolled_back', 'retryable' => true, 'causeClass' => $causeClass,
             'sqlState' => $sqlState, 'driverCode' => $driverCode,
         ];
         ksort($expected);
