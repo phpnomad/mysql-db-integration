@@ -5,6 +5,7 @@ namespace PHPNomad\MySql\Integration\Tests\Integration;
 use Error;
 use InvalidArgumentException;
 use PDO;
+use PDOException;
 use PHPNomad\Database\Exceptions\UnsupportedCoordinationException;
 use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
 use PHPNomad\Datastore\Exceptions\RecordNotFoundException;
@@ -46,11 +47,30 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         $statement = $this->observer->prepare('INSERT INTO `' . $name . '` VALUES (?, 7)');
         self::assertNotFalse($statement);
         $statement->execute([$value]);
+        $otherTenant = 'different-tenant-for-proof';
+        $statement->execute([$otherTenant]);
         $parent = new CoordinationTable($name, ['tenantId', 'id']);
         $calls = 0;
         $result = $this->strategy->coordinate($parent, ['id' => 7, 'tenantId' => $value], [$parent, $this->effects],
-            function (DatabaseStrategy $backend) use (&$calls): string {
+            function (DatabaseStrategy $backend) use (&$calls, $name, $value, $otherTenant): string {
                 $calls++;
+                $this->observer->beginTransaction();
+                try {
+                    $probe = $this->observer->prepare('SELECT id FROM `' . $name . '` WHERE tenantId = ? AND id = 7 FOR UPDATE NOWAIT');
+                    self::assertNotFalse($probe);
+                    $probe->execute([$otherTenant]);
+                    self::assertSame([['id' => '7']], $probe->fetchAll(),
+                        'The other complete identity must remain independently lockable.');
+                    try {
+                        $probe->execute([$value]);
+                        self::fail('The supplied complete identity must already be locked by the operation.');
+                    } catch (PDOException $failure) {
+                        self::assertSame(3572, $failure->errorInfo[1] ?? null,
+                            'The competing lock must fail because NOWAIT found the owned record lock.');
+                    }
+                } finally {
+                    $this->observer->rollBack();
+                }
                 $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
                 return 'committed';
             });
