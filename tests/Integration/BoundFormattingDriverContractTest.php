@@ -29,7 +29,6 @@ final class BoundFormattingDriverContractTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->markTestIncomplete('Operation-bound formatting driver proof is pending.');
     }
 
     /** @dataProvider operations */
