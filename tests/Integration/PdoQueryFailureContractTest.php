@@ -98,6 +98,69 @@ final class PdoQueryFailureContractTest extends TestCase
         return ['exception mode' => [PDO::ERRMODE_EXCEPTION], 'silent mode' => [PDO::ERRMODE_SILENT]];
     }
 
+    public function testWarningModePreservesHostDiagnosticsAndNormalizesTheFalseResult(): void
+    {
+        $pdo = $this->connection(PDO::ERRMODE_WARNING);
+        $strategy = new PdoDatabaseStrategy(PdoConnection::fromPdo($pdo));
+        $warnings = [];
+        set_error_handler(static function (int $severity, string $message) use (&$warnings): bool {
+            $warnings[] = [$severity, $message];
+            return true;
+        });
+        try {
+            try {
+                $strategy->query('sensitive_contract_identifier SELECT');
+                self::fail('Warning mode must normalize the false result after the host receives its warning.');
+            } catch (DatastoreErrorException $failure) {
+                self::assertSame('Failed to execute query.', $failure->getMessage());
+                self::assertSame(500, $failure->getCode());
+                $cause = $failure->getPrevious();
+                self::assertInstanceOf(PDOException::class, $cause);
+                self::assertSame($pdo->lastQueryErrorInfo, $cause->errorInfo);
+                self::assertSame(['42000', 1064], array_slice($pdo->lastQueryErrorInfo, 0, 2));
+            }
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertCount(1, $warnings);
+        self::assertSame(E_WARNING, $warnings[0][0]);
+        self::assertStringContainsString('sensitive_contract_identifier', $warnings[0][1]);
+        self::assertSame(1, $pdo->queryCalls);
+        self::assertSame(PDO::ERRMODE_WARNING, $pdo->getAttribute(PDO::ATTR_ERRMODE));
+        self::assertSame([['value' => '1']], $strategy->query('SELECT 1 AS value'));
+    }
+
+    public function testWarningModeRetainsAHostHandlerThatThrows(): void
+    {
+        $pdo = $this->connection(PDO::ERRMODE_WARNING);
+        $strategy = new PdoDatabaseStrategy(PdoConnection::fromPdo($pdo));
+        $hostFailure = new \ErrorException('Host warning handler sentinel');
+        $caught = null;
+        set_error_handler(static function () use ($hostFailure): never {
+            throw $hostFailure;
+        });
+        try {
+            try {
+                $this->queryThroughThrowingHostHandler($strategy);
+            } catch (\ErrorException $failure) {
+                $caught = $failure;
+            }
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertSame($hostFailure, $caught);
+        self::assertSame(1, $pdo->queryCalls);
+        self::assertSame(PDO::ERRMODE_WARNING, $pdo->getAttribute(PDO::ATTR_ERRMODE));
+    }
+
+    /** @throws \ErrorException The installed host warning handler throws this exception. */
+    private function queryThroughThrowingHostHandler(PdoDatabaseStrategy $strategy): void
+    {
+        $strategy->query('sensitive_contract_identifier SELECT');
+    }
+
     private function connection(int $mode): QueryRecordingPdo
     {
         $dsn = getenv('TEST_MYSQL_COORDINATION_DSN');
