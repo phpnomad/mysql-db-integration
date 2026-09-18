@@ -19,10 +19,17 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
     protected array $preparedValues = [];
     /** @var list<DatabaseStrategy> */
     private array $databaseStrategyStack = [];
+
     /** @var list<string> */
     protected array $validOperators = ["=", "<", ">", "<=", ">=", "<>", "!=",
         "LIKE", "NOT LIKE", "IN", "NOT IN", "BETWEEN",
         "NOT BETWEEN", "IS NULL", "IS NOT NULL"];
+
+    /** Copy builder content without inheriting a temporary backend binding. */
+    public function __clone(): void
+    {
+        $this->databaseStrategyStack = [];
+    }
 
     /** @inheritDoc */
     public function buildWithDatabaseStrategy(DatabaseStrategy $database): string
