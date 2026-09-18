@@ -1,13 +1,12 @@
 # PDO query failure contract
 
-Status: acceptance contract defined. Production failure handling is unchanged.
+Status: implemented. Real-driver acceptance and regression tests pass.
 
-PdoDatabaseStrategy already converts PDOException into DatastoreErrorException
-with the stable public message `Failed to execute query.` and the original
-driver exception as its cause. It currently assumes PDO::query always returns
-a statement when no exception was thrown. In silent error mode, PDO returns
-false instead. The method then fails while accessing a nonexistent statement,
-losing the useful driver classification.
+PdoDatabaseStrategy converts PDOException and false query results into
+DatastoreErrorException with the stable public message `Failed to execute
+query.`. The original driver exception remains its cause when PDO throws one.
+For a false return, the strategy constructs a PDOException carrying the driver's
+error information. Both paths preserve useful driver classification.
 
 The query method must expose the same failure contract for exception and silent
 mode. It throws DatastoreErrorException with the existing public message and
@@ -32,11 +31,6 @@ Successful row results retain their existing shape. Empty SELECT results remain
 an empty array. Writes still return their affected-row count, including zero
 for a valid unchanged update or unmatched delete. No schema, connection, or
 transaction interface changes are needed.
-
-One implementer changes only PdoDatabaseStrategy and its own internal tests.
-The acceptance assertions are fixed. Only their incomplete marker may be
-removed. The existing production method remains in place during architecture
-review so ordinary query behavior continues to work.
 
 The acceptance cases run the real PDO driver in exception and silent modes.
 Separate tests cover warning-mode compatibility. They cover a
