@@ -142,7 +142,7 @@ final class PdoCoordinationVisibilityContractTest extends OwnedPdoCoordinationCo
         if ($coverage === 'role only') {
             $roles = $pdo->query('SELECT CURRENT_ROLE()');
             self::assertNotFalse($roles);
-            self::assertNotSame('NONE', $roles->fetchColumn(), 'The unsupported role-only profile must really have an active role.');
+            self::assertNotSame('NONE', $roles->fetchColumn(), 'The unsupported role-only profile must have an active role.');
         }
         $this->usePrimary($pdo);
     }
