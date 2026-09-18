@@ -60,7 +60,11 @@ abstract class OwnedPdoCoordinationContractCase extends TestCase
                 $this->observer->exec('DROP USER ' . $this->observer->quote($name) . "@'%'");
             }
         } finally {
-            parent::tearDown();
+            try {
+                parent::tearDown();
+            } finally {
+                unset($this->strategy, $this->primary, $this->observer);
+            }
         }
     }
 
