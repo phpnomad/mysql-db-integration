@@ -52,6 +52,12 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables, CanBuildWit
     /** @var list<DatabaseStrategy> */
     private array $databaseStrategyStack = [];
 
+    /** Copy builder content without inheriting a temporary backend binding. */
+    public function __clone(): void
+    {
+    }
+
+
     /** @inheritDoc */
     public function buildWithDatabaseStrategy(DatabaseStrategy $database): string
     {
