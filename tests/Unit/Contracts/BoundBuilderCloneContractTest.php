@@ -15,15 +15,6 @@ use Throwable;
 /** Clones retain builder content, not another invocation's temporary resource. */
 final class BoundBuilderCloneContractTest extends BoundFormattingContractCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-        if ($this->getName(false) === 'testClauseClonesOwnTheirBindingLifecycle') {
-        }
-        if ($this->getName(false) === 'testQueryClonesOwnTheirBindingLifecycle') {
-        }
-    }
-
     /** @dataProvider outcomes */
     public function testClauseClonesOwnTheirBindingLifecycle(string $outcome, bool $nested): void
     {
