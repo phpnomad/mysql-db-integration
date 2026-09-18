@@ -19,7 +19,6 @@ final class BoundQueryBuildContractTest extends BoundFormattingContractCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->markTestIncomplete('Operation-bound query formatting implementation is pending.');
     }
 
     public function testTheWhereTreeUsesTheSuppliedBackend(): void
