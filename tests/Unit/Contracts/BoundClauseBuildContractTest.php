@@ -15,11 +15,6 @@ use Throwable;
 
 final class BoundClauseBuildContractTest extends BoundFormattingContractCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-    }
-
     public function testBoundBuildUsesItsBackendAndOrdinaryBuildKeepsTheFacade(): void
     {
         $bound = $this->createMock(DatabaseStrategy::class);
