@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "41164e29d6c17e17d65888172b5e6e15",
+    "content-hash": "f99afd4895e3326f37492cab04488d37",
     "packages": [
         {
             "name": "phpnomad/cache",
@@ -93,17 +93,11 @@
         },
         {
             "name": "phpnomad/db",
-            "version": "2.0.1",
+            "version": "dev-codex/coordinated-database-contracts-v2",
             "source": {
                 "type": "git",
-                "url": "https://github.com/phpnomad/db.git",
-                "reference": "d15e7b0d113d976be82983c87df666bb39da670c"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/phpnomad/db/zipball/d15e7b0d113d976be82983c87df666bb39da670c",
-                "reference": "d15e7b0d113d976be82983c87df666bb39da670c",
-                "shasum": ""
+                "url": "git@github.com:phpnomad/db.git",
+                "reference": "bc502c5633893dcaff8420132f876863d14f4457"
             },
             "require": {
                 "phpnomad/cache": "^1.0",
@@ -121,7 +115,16 @@
                     "PHPNomad\\Database\\": "lib/"
                 }
             },
-            "notification-url": "https://packagist.org/downloads/",
+            "autoload-dev": {
+                "psr-4": {
+                    "PHPNomad\\Database\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "php-cs-fixer": [
+                    "php-cs-fixer fix"
+                ]
+            },
             "license": [
                 "MIT"
             ],
@@ -132,11 +135,7 @@
                 }
             ],
             "homepage": "https://github.com/phpnomad/core",
-            "support": {
-                "issues": "https://github.com/phpnomad/db/issues",
-                "source": "https://github.com/phpnomad/db/tree/2.0.1"
-            },
-            "time": "2025-01-15T11:34:31+00:00"
+            "time": "2026-09-17T22:52:37+00:00"
         },
         {
             "name": "phpnomad/di",
@@ -5362,12 +5361,23 @@
             "time": "2025-11-17T20:03:58+00:00"
         }
     ],
-    "aliases": [],
+    "aliases": [
+        {
+            "package": "phpnomad/db",
+            "version": "dev-codex/coordinated-database-contracts-v2",
+            "alias": "2.2.x-dev",
+            "alias_normalized": "2.2.9999999.9999999-dev"
+        }
+    ],
     "minimum-stability": "stable",
-    "stability-flags": {},
+    "stability-flags": {
+        "phpnomad/db": 20
+    },
     "prefer-stable": false,
     "prefer-lowest": false,
-    "platform": {},
+    "platform": {
+        "ext-pdo": "*"
+    },
     "platform-dev": {},
     "plugin-api-version": "2.9.0"
 }
