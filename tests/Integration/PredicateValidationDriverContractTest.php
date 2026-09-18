@@ -115,7 +115,7 @@ final class PredicateValidationDriverContractTest extends TestCase
                 $clause->where('score', '=', $entry === 'andWhere' ? 10 : 999);
             }
             $clause->$entry('id', $operator, 7, 8);
-            $query = $container->get(QueryBuilder::class)->from($table)->select('*')->where($clause);
+            $query = $container->get(QueryBuilder::class)->from($table)->select('*')->where($clause)->orderBy('id', 'ASC');
             $pdo->queryCalls = 0;
             $outside = ['id' => '9', 'score' => '10', 'label' => 'outside'];
             $expected = $operator === 'between' ? $this->originalRows() : [$outside];
