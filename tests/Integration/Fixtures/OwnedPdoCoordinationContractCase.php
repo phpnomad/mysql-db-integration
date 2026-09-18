@@ -28,7 +28,6 @@ abstract class OwnedPdoCoordinationContractCase extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->markTestIncomplete('PDO coordination implementation assignment is pending.');
         $this->primary = $this->connect();
         $this->observer = $this->connect();
         $prefix = 'nomad_coord_' . bin2hex(random_bytes(6));
