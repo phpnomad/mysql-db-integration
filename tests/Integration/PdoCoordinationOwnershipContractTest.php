@@ -8,6 +8,8 @@ use PHPNomad\Database\Exceptions\CoordinatedOperationConflictException;
 use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\OwnedPdoCoordinationContractCase;
+use RuntimeException;
+use Throwable;
 
 /** Ownership loss cannot turn already committed effects into retryable failures. */
 final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationContractCase
@@ -16,6 +18,36 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
     {
         parent::setUp();
         $this->markTestIncomplete('Composed ownership-loss protection is pending.');
+    }
+
+    /** @dataProvider ordinaryQueryOutcomes */
+    public function testOrdinaryQueriesRemainAvailableBeforeAndAfterTheOwnedAttempt(bool $callbackFails): void
+    {
+        self::assertSame([['id' => '41']], $this->strategy->query('SELECT 41 AS id'));
+        $original = new RuntimeException('Callback failed');
+        $caught = null;
+        $result = null;
+        try {
+            $result = $this->coordinate(function (DatabaseStrategy $backend) use ($callbackFails, $original): string {
+                $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
+                if ($callbackFails) {
+                    throw $original;
+                }
+                return 'committed';
+            });
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        }
+        self::assertSame($callbackFails ? $original : null, $caught);
+        self::assertSame($callbackFails ? null : 'committed', $result);
+        self::assertSame([['id' => '42']], $this->strategy->query('SELECT 42 AS id'));
+        self::assertFalse($this->primary->inTransaction());
+        self::assertSame($callbackFails ? [] : [['id' => '1', 'score' => '12']], $this->visibleEffects());
+        if ($callbackFails) {
+            $this->assertFailureLog('callback', 'rolled_back', false, RuntimeException::class);
+        } else {
+            self::assertSame([], $this->logger->entries);
+        }
     }
 
     /** @dataProvider committedOwnershipLoss */
@@ -143,5 +175,11 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
     public static function allOwnershipLoss(): array
     {
         return self::committedOwnershipLoss() + ['rollback' => ['rollback']];
+    }
+
+    /** @return array<string, array{bool}> */
+    public static function ordinaryQueryOutcomes(): array
+    {
+        return ['commit' => [false], 'callback failure' => [true]];
     }
 }
