@@ -28,6 +28,7 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
     /** Copy builder content without inheriting a temporary backend binding. */
     public function __clone(): void
     {
+        $this->databaseStrategyStack = [];
     }
 
     /** @inheritDoc */
