@@ -21,7 +21,6 @@ final class BoundBuilderCloneContractTest extends BoundFormattingContractCase
         if ($this->getName(false) === 'testClauseClonesOwnTheirBindingLifecycle') {
         }
         if ($this->getName(false) === 'testQueryClonesOwnTheirBindingLifecycle') {
-            $this->markTestIncomplete('Query clone binding repair is pending.');
         }
     }
 
