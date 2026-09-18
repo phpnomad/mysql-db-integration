@@ -85,9 +85,9 @@ try {
         if ((readMessage()['action'] ?? null) !== 'run') {
             throw new RuntimeException('Expected the DDL run barrier.');
         }
-        $table = textField($config, 'effects');
-        if (!preg_match('/^nomad_coord_[a-f0-9]+_effects$/D', $table)) {
-            throw new RuntimeException('DDL requires an explicitly owned effect table.');
+        $table = textField($config, 'table');
+        if (!preg_match('/^nomad_coord_[a-f0-9]+_(parents|effects|claims)$/D', $table)) {
+            throw new RuntimeException('DDL requires an explicitly owned participant table.');
         }
         emit('ATTEMPT');
         $pdo->exec('ALTER TABLE `' . $table . '` ENGINE=MyISAM');

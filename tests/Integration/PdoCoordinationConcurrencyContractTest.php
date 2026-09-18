@@ -164,19 +164,20 @@ final class PdoCoordinationConcurrencyContractTest extends OwnedPdoCoordinationC
         self::assertSame([['id' => '1', 'score' => '12'], ['id' => '2', 'score' => '10']], $this->visibleEffects());
     }
 
-    /** @dataProvider supportedIsolationLevels */
-    public function testParticipantDefinitionsStayLockedBeforeTheCallbackFirstUsesThem(string $isolation): void
+    /** @dataProvider participantDefinitionRaces */
+    public function testParticipantDefinitionsStayLockedBeforeTheCallbackFirstUsesThem(string $isolation, string $participant): void
     {
         $claims = $this->createClaims();
+        $target = ['first' => $this->parents->getName(), 'middle' => $this->effects->getName(), 'last' => $claims][$participant];
         $this->observer->exec('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 10)');
-        $owner = $this->client($isolation, $claims, 1, 1, 2, 0, ['holdBeforeIo' => 1]);
+        $owner = $this->client($isolation, $claims, 1, 1, 2, 31, ['holdBeforeIo' => 1]);
         $owner->send(['action' => 'run']);
         $owner->await('BEFORE_IO');
-        $ddl = new CoordinationClient(['mode' => 'ddl', 'effects' => $this->effects->getName()]);
+        $ddl = new CoordinationClient(['mode' => 'ddl', 'table' => $target]);
         $this->clients[] = $ddl;
         $ddl->send(['action' => 'run']);
         $ddl->await('ATTEMPT');
-        self::assertSame('blocked', $this->observeMetadataWaitOrCompletion($ddl, $owner),
+        self::assertSame('blocked', $this->observeMetadataWaitOrCompletion($ddl, $owner, $target),
             'An authorized participant must not change engine before its first callback write.');
 
         $owner->send(['action' => 'continue']);
@@ -185,9 +186,12 @@ final class PdoCoordinationConcurrencyContractTest extends OwnedPdoCoordinationC
         $this->assertClientFinished($owner);
         self::assertSame(0, $ddl->finish()['exitCode']);
         self::assertSame([['id' => '1', 'score' => '12']], $this->visibleEffects());
+        $claimRows = $this->observer->query('SELECT id FROM `' . $claims . '`');
+        self::assertNotFalse($claimRows);
+        self::assertSame([['id' => '31']], $claimRows->fetchAll());
         $engine = $this->observer->prepare('SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?');
         self::assertNotFalse($engine);
-        $engine->execute([$this->effects->getName()]);
+        $engine->execute([$target]);
         self::assertSame('MyISAM', $engine->fetchColumn());
     }
 
@@ -235,7 +239,7 @@ final class PdoCoordinationConcurrencyContractTest extends OwnedPdoCoordinationC
         throw new RuntimeException('Neither callback entry nor a server lock wait became observable. Check the client protocol and lock-table access.');
     }
 
-    private function observeMetadataWaitOrCompletion(CoordinationClient $waiting, CoordinationClient $holding): string
+    private function observeMetadataWaitOrCompletion(CoordinationClient $waiting, CoordinationClient $holding, string $table): string
     {
         $statement = $this->observer->prepare('SELECT COUNT(*) FROM performance_schema.metadata_locks pending
             JOIN performance_schema.threads waiter ON waiter.THREAD_ID = pending.OWNER_THREAD_ID
@@ -252,7 +256,7 @@ final class PdoCoordinationConcurrencyContractTest extends OwnedPdoCoordinationC
             if (($frame['event'] ?? null) === 'DONE') {
                 return 'completed';
             }
-            $statement->execute([$this->effects->getName(), $waiting->connectionId, $holding->connectionId]);
+            $statement->execute([$table, $waiting->connectionId, $holding->connectionId]);
             if ((int) $statement->fetchColumn() > 0) {
                 return 'blocked';
             }
@@ -301,6 +305,18 @@ final class PdoCoordinationConcurrencyContractTest extends OwnedPdoCoordinationC
     public static function supportedIsolationLevels(): array
     {
         return ['read committed' => ['READ COMMITTED'], 'repeatable read' => ['REPEATABLE READ']];
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function participantDefinitionRaces(): array
+    {
+        $cases = [];
+        foreach (['READ COMMITTED', 'REPEATABLE READ'] as $isolation) {
+            foreach (['first', 'middle', 'last'] as $participant) {
+                $cases[$isolation . ' ' . $participant] = [$isolation, $participant];
+            }
+        }
+        return $cases;
     }
 
     /** @return array<string, array{string, string}> */
