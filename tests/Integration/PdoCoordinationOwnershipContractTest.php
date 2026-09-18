@@ -55,6 +55,66 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
         self::assertSame([['id' => '42']], $this->strategy->query('SELECT 42 AS id'));
     }
 
+    /** @dataProvider inactiveCoordinationBoundaries */
+    public function testPriorCoordinationEvidenceCannotAuthorizeTheSameFailureAfterALaterCommit(string $boundary, int $mode): void
+    {
+        $pdo = $this->connect(InactiveCoordinationRollbackPdo::class);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, $mode);
+        $pdo->arm($boundary, $this->effects->getName());
+        $this->usePrimary($pdo);
+        $firstCalls = 0;
+        $original = null;
+        try {
+            $this->coordinate(static function () use (&$firstCalls): void { $firstCalls++; });
+        } catch (CoordinatedOperationConflictException $failure) {
+            $original = $failure->getPrevious();
+        }
+        self::assertInstanceOf(PDOException::class, $original);
+        self::assertSame(['40001', 1213, 'Injected coordination failure after whole rollback'], $original->errorInfo);
+        if ($mode === PDO::ERRMODE_EXCEPTION) {
+            self::assertSame($pdo->faultCause, $original);
+        }
+        self::assertSame(12, $pdo->visibleBeforeAbort);
+        self::assertTrue($pdo->inactiveAtFailure);
+        self::assertSame(0, $firstCalls);
+        self::assertSame([], $this->visibleEffects());
+        $this->assertFailureLog('coordination', 'rolled_back', true, PDOException::class, '40001', 1213);
+        $this->logger->entries = [];
+        $name = $this->parents->getName();
+        $descriptorCalls = 0;
+        $descriptor = $this->createMock(Table::class);
+        $descriptor->method('getFieldsForIdentity')->willReturn(['tenantId', 'id']);
+        $descriptor->method('getName')->willReturnCallback(function () use ($name, $original, &$descriptorCalls): string {
+            if ($this->primary->inTransaction()) {
+                $descriptorCalls++;
+                $this->primary->exec('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 99)');
+                $this->primary->commit();
+                throw $original;
+            }
+            return $name;
+        });
+        $secondCalls = 0;
+        $caught = null;
+        try {
+            $this->strategy->coordinate($descriptor, ['tenantId' => 1, 'id' => 7], [$this->parents, $this->effects],
+                static function () use (&$secondCalls): void { $secondCalls++; });
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        }
+        self::assertInstanceOf(CoordinatedOperationCleanupFailedException::class, $caught);
+        self::assertNotInstanceOf(CoordinatedOperationConflictException::class, $caught);
+        self::assertSame($original, $caught->getOperationFailure());
+        self::assertInstanceOf(DatastoreErrorException::class, $caught->getPrevious());
+        self::assertSame(1, $descriptorCalls);
+        self::assertSame(0, $secondCalls);
+        self::assertSame(1, $pdo->injectedFailures);
+        self::assertFalse($pdo->inTransaction());
+        self::assertSame([['id' => '1', 'score' => '99']], $this->visibleEffects());
+        $this->assertFailureLog('rollback', 'unknown', false, DatastoreErrorException::class, priorFailure: [
+            'phase' => 'coordination', 'causeClass' => PDOException::class, 'sqlState' => '40001', 'driverCode' => 1213,
+        ]);
+    }
+
     /** @dataProvider allOwnershipLoss */
     public function testCoordinationPhaseAloneCannotAuthorizeADeadlockShapedDescriptorFailure(string $action): void
     {
