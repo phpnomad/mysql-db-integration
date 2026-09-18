@@ -1,0 +1,47 @@
+# PDO query failure contract
+
+Status: acceptance contract defined. Production failure handling is unchanged.
+
+PdoDatabaseStrategy already converts PDOException into DatastoreErrorException
+with the stable public message `Failed to execute query.` and the original
+driver exception as its cause. It currently assumes PDO::query always returns
+a statement when no exception was thrown. In silent error mode, PDO returns
+false instead. The method then fails while accessing a nonexistent statement,
+losing the useful driver classification.
+
+The query method must expose the same failure contract for exception and silent
+mode. It throws DatastoreErrorException with the existing public message and
+code 500. Its PDOException cause retains the SQLSTATE, vendor error number,
+and diagnostic text in errorInfo. For a caught driver exception, preserve that
+original exception. For a false return, construct a driver exception carrying
+the reported error information. Do not include SQL or driver details in the
+public message. Do not change the connection's error mode or retry a query.
+
+Successful row results retain their existing shape. Empty SELECT results remain
+an empty array. Writes still return their affected-row count, including zero
+for a valid unchanged update or unmatched delete. No schema, connection, or
+transaction interface changes are needed.
+
+One implementer changes only PdoDatabaseStrategy and its own internal tests.
+The acceptance assertions are fixed. Only their incomplete marker may be
+removed. The existing production method remains in place during architecture
+review so ordinary query behavior continues to work.
+
+The six acceptance cases run the real PDO driver in both modes. They cover a
+duplicate-key write, malformed SQL whose driver message contains a sensitive
+identifier, successful writes and reads, empty results, and zero affected rows.
+A recording PDO subclass forwards every query to the real driver and captures
+its actual exception and attempt count. The tests therefore prove original
+cause identity, unchanged driver details, and no query retry at the driver
+boundary. It does not return fake database results.
+The test uses an explicitly configured, owned schema and connection-local
+temporary tables, so no shared application records are touched. Missing
+configuration or an unavailable database reports a skip, not a passing driver
+proof. The package has no application entry point. The later coordinator and
+Siren handler tests must prove this error behavior through their real bindings.
+
+Logging remains owned by the boundary that handles the failed operation, using
+LoggerStrategy with safe context. This leaf method preserves the cause and
+adds neither logging transport nor retry. Confirmed coordination rollback,
+contention, and uncertain commit classification belong to the following adapter
+change. They must consume this driver cause without replaying callbacks.
