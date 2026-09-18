@@ -76,7 +76,8 @@ final class PredicateValidationContractTest extends BoundFormattingContractCase
         $failure = $kind === 'error' ? new Error('Descriptor failed') : new RuntimeException('Descriptor failed');
         $table = $this->createMock(Table::class);
         $table->method('getColumns')->willThrowException($failure);
-        $builder = (new MySqlClauseBuilder())->useTable($table);
+        $validTable = $this->table();
+        $builder = (new MySqlClauseBuilder())->useTable($validTable)->where('id', '=', 7)->useTable($table);
         $caught = null;
         try {
             $builder->$entry('id', '=', 999);
@@ -84,12 +85,22 @@ final class PredicateValidationContractTest extends BoundFormattingContractCase
             $caught = $actual;
         }
         self::assertSame($failure, $caught);
-        $this->globalDatabase->expects(self::once())->method('parse')->with('s.id = ?s', 7)->willReturn('VALID');
-        self::assertSame('VALID', $builder->useTable($this->table())->where('id', '=', 7)->build());
+        $this->globalDatabase->expects(self::once())->method('parse')
+            ->with('s.id = ?s AND s.score = ?s', 7, 12)->willReturn('VALID');
+        self::assertSame('VALID', $builder->useTable($validTable)->andWhere('score', '=', 12)->build());
     }
 
-    /** @dataProvider validConditions */
-    public function testKnownConditionsKeepTheirFieldHookAndOperatorNormalization(string $operator, string $suffix, bool $hasValue): void
+    /**
+     * @dataProvider validConditions
+     * @param string|list<string> $field
+     * @param list<int|list<int>> $values
+     */
+    public function testKnownConditionsKeepTheirFieldHookAndOperatorNormalization(
+        string $entry,
+        string|array $field,
+        string $operator,
+        array $values
+    ): void
     {
         $builder = new class extends MySqlClauseBuilder {
             protected function prependField(string $field, ?Table $table = null): string
@@ -98,15 +109,28 @@ final class PredicateValidationContractTest extends BoundFormattingContractCase
             }
         };
         $builder->useTable($this->table());
-        if ($hasValue) {
-            $this->globalDatabase->expects(self::once())->method('parse')
-                ->with('FIELD(s.id) ' . $suffix, 7)->willReturn('VALID');
-            self::assertSame($builder, $builder->where('id', $operator, 7));
+        $prefix = '';
+        if ($entry !== 'where') {
+            $builder->where('score', 'IS NULL');
+            $prefix = 'FIELD(s.score) IS NULL  ' . ($entry === 'andWhere' ? 'AND' : 'OR') . ' ';
+        }
+        $fieldSql = is_array($field) ? '(FIELD(s.id), FIELD(s.score))' : 'FIELD(s.id)';
+        $prefix .= $fieldSql . ' ' . strtoupper($operator) . ' ';
+        if ($values !== []) {
+            $this->globalDatabase->expects(self::once())->method('parse')->willReturnCallback(
+                static function (string $sql, mixed ...$actualValues) use ($prefix, $values): string {
+                    self::assertStringStartsWith($prefix, $sql);
+                    self::assertNotSame('', trim(substr($sql, strlen($prefix))), 'A valued condition must retain its operand.');
+                    self::assertSame($values, $actualValues);
+                    return 'VALID';
+                }
+            );
+            self::assertSame($builder, $builder->$entry($field, $operator, ...$values));
             self::assertSame('VALID', $builder->build());
         } else {
             $this->globalDatabase->expects(self::never())->method('parse');
-            self::assertSame($builder, $builder->where('id', $operator));
-            self::assertSame('FIELD(s.id) ' . $suffix, $builder->build());
+            self::assertSame($builder, $builder->$entry($field, $operator));
+            self::assertSame($prefix, $builder->build());
         }
     }
 
@@ -167,14 +191,22 @@ final class PredicateValidationContractTest extends BoundFormattingContractCase
         return $cases;
     }
 
-    /** @return array<string, array{string, string, bool}> */
+    /** @return array<string, array{string, string|list<string>, string, list<int|list<int>>}> */
     public static function validConditions(): array
     {
-        return [
-            'equals' => ['=', '= ?s', true],
-            'case-insensitive like' => ['like', 'LIKE ?s', true],
-            'case-insensitive in' => ['in', 'IN (?a)', true],
-            'null without values' => ['is null', 'IS NULL ', false],
-        ];
+        $cases = [];
+        foreach (['where', 'andWhere', 'orWhere'] as $entry) {
+            foreach (['=', '<', '>', '<=', '>=', '<>', '!=', 'like', 'not like', 'in', 'not in', 'between', 'not between', 'is null', 'is not null'] as $operator) {
+                $values = match ($operator) {
+                    'is null', 'is not null' => [],
+                    'between', 'not between' => [7, 9],
+                    'in', 'not in' => [[7, 9]],
+                    default => [7],
+                };
+                $cases[$entry . ' ' . $operator] = [$entry, 'id', $operator, $values];
+            }
+            $cases[$entry . ' complete field list'] = [$entry, ['id', 'score'], 'in', [[7, 12]]];
+        }
+        return $cases;
     }
 }
