@@ -20,7 +20,6 @@ final class PdoQueryFailureContractTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->markTestIncomplete('PDO query failure implementation assignment is pending.');
     }
 
     protected function tearDown(): void
