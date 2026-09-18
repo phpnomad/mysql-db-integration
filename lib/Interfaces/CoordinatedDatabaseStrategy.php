@@ -13,7 +13,11 @@ interface CoordinatedDatabaseStrategy extends DatabaseStrategy
      * Within the adapter's documented deployment preconditions, observable
      * unsupported participants or ambient operations fail before the callback
      * or any write. All participating writes commit together. The callback
-     * must use only the supplied backend and perform no external effects.
+     * must use only the supplied backend and declared tables, perform no
+     * external effects, and leave transaction and schema control to the owner.
+     * Supplied queries must refuse observable ownership loss before execution
+     * and detect it before returning. This is not a sandbox for arbitrary SQL.
+     * Error numbers alone do not establish that an inactive attempt rolled back.
      * This seam does not expose application datastore operations.
      *
      * @template TResult
