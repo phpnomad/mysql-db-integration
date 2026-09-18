@@ -36,24 +36,24 @@ The acceptance assertions are fixed. Only their incomplete marker may be
 removed. The existing production method remains in place during architecture
 review so ordinary query behavior continues to work.
 
-The acceptance cases run the real PDO driver in exception and silent modes,
-with warning-mode compatibility tested separately. They cover a
+The acceptance cases run the real PDO driver in exception and silent modes.
+Separate tests cover warning-mode compatibility. They cover a
 duplicate-key write, malformed SQL whose driver message contains a sensitive
 identifier, successful writes and reads, empty results, and zero affected rows.
 A recording PDO subclass forwards every query to the real driver and captures
 its actual exception and attempt count. The tests therefore prove original
 cause identity, unchanged driver details, and no query retry at the driver
-boundary. It does not return fake database results.
+boundary. The recording subclass never returns fake database results.
 The warning-mode test installs a recording host handler and restores it in a
-finally block. It must observe the actual warning, not merely prove that a safe
-exception was constructed after diagnostics had already escaped elsewhere.
+finally block. It must observe the actual warning, not merely prove that the
+strategy constructed a safe exception after diagnostics had escaped elsewhere.
 The test uses an explicitly configured, owned schema and connection-local
-temporary tables, so no shared application records are touched. Missing
+temporary tables, so it never touches shared application records. Missing
 configuration or an unavailable database reports a skip, not a passing driver
 proof. The package has no application entry point. The later coordinator and
 Siren handler tests must prove this error behavior through their real bindings.
 
-Logging remains owned by the boundary that handles the failed operation, using
+The boundary that handles the failed operation owns logging and uses
 LoggerStrategy with safe context. This leaf method preserves the cause and
 adds neither logging transport nor retry. Confirmed coordination rollback,
 contention, and uncertain commit classification belong to the following adapter
