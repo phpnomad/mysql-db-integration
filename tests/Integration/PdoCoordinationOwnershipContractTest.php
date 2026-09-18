@@ -50,7 +50,7 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
         }
     }
 
-    /** @dataProvider committedOwnershipLoss */
+    /** @dataProvider allOwnershipLoss */
     public function testASuppliedBackendStatementThatEndsOwnershipCannotReturnToTheCallback(string $action): void
     {
         $continued = false;
@@ -59,8 +59,11 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
         $operation = function (DatabaseStrategy $backend) use ($action, &$continued, &$calls): void {
             $calls++;
             $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
-            $backend->query($action === 'commit' ? 'COMMIT' :
-                $backend->parse('ALTER TABLE ?n COMMENT = ?s', $this->effects->getName(), 'ownership boundary'));
+            $backend->query(match ($action) {
+                'commit' => 'COMMIT',
+                'rollback' => 'ROLLBACK',
+                default => $backend->parse('ALTER TABLE ?n COMMENT = ?s', $this->effects->getName(), 'ownership boundary'),
+            });
             $continued = true;
             throw $this->deadlockShapedFailure();
         };
@@ -76,7 +79,7 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
         self::assertFalse($continued, 'The ownership-ending statement must not return normally.');
         self::assertSame(1, $calls);
         self::assertFalse($this->primary->inTransaction());
-        self::assertSame([['id' => '1', 'score' => '12']], $this->visibleEffects());
+        self::assertSame($action === 'rollback' ? [] : [['id' => '1', 'score' => '12']], $this->visibleEffects());
     }
 
     /** @dataProvider allOwnershipLoss */
@@ -169,15 +172,9 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
     }
 
     /** @return array<string, array{string}> */
-    public static function committedOwnershipLoss(): array
-    {
-        return ['commit' => ['commit'], 'implicit commit' => ['implicit commit']];
-    }
-
-    /** @return array<string, array{string}> */
     public static function allOwnershipLoss(): array
     {
-        return self::committedOwnershipLoss() + ['rollback' => ['rollback']];
+        return ['commit' => ['commit'], 'implicit commit' => ['implicit commit'], 'rollback' => ['rollback']];
     }
 
     /** @return array<string, array{bool}> */
