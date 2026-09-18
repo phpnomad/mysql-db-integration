@@ -2,11 +2,13 @@
 
 namespace PHPNomad\MySql\Integration\Tests\Integration;
 
+use PDO;
 use PDOException;
 use PHPNomad\Database\Exceptions\CoordinatedOperationCleanupFailedException;
 use PHPNomad\Database\Exceptions\CoordinatedOperationConflictException;
 use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
+use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\InactiveQueryRollbackPdo;
 use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\OwnedPdoCoordinationContractCase;
 use RuntimeException;
 use Throwable;
@@ -18,6 +20,106 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
     {
         parent::setUp();
         $this->markTestIncomplete('Composed ownership-loss protection is pending.');
+    }
+
+    /** @dataProvider inactiveQueryOutcomes */
+    public function testInactiveRollbackEvidenceMustComeFromTheExactSuppliedQueryFailure(int $mode, bool $replace): void
+    {
+        $pdo = $this->connect(InactiveQueryRollbackPdo::class);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, $mode);
+        $this->usePrimary($pdo);
+        $replacement = $this->deadlockShapedFailure();
+        $observed = null;
+        $calls = 0;
+        $caught = null;
+        /** @var callable(DatabaseStrategy): void $operation */
+        $operation = function (DatabaseStrategy $backend) use ($pdo, $replace, $replacement, &$observed, &$calls): void {
+            $calls++;
+            $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
+            $pdo->faultQuery = 'SELECT 123 AS injected_rollback';
+            try {
+                $backend->query($pdo->faultQuery);
+            } catch (DatastoreErrorException $failure) {
+                $observed = $failure;
+                throw $replace ? $replacement : $failure;
+            }
+        };
+        try {
+            $this->coordinate($operation);
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        }
+        self::assertInstanceOf(DatastoreErrorException::class, $observed);
+        self::assertInstanceOf(PDOException::class, $observed->getPrevious());
+        self::assertSame(['40001', 1213, 'Injected query failure after whole rollback'], $observed->getPrevious()->errorInfo);
+        if ($mode === PDO::ERRMODE_EXCEPTION) {
+            self::assertSame($pdo->faultCause, $observed->getPrevious());
+        }
+        if ($replace) {
+            self::assertInstanceOf(CoordinatedOperationCleanupFailedException::class, $caught);
+            self::assertNotInstanceOf(CoordinatedOperationConflictException::class, $caught);
+            self::assertSame($replacement, $caught->getOperationFailure());
+            self::assertInstanceOf(DatastoreErrorException::class, $caught->getPrevious());
+            $this->assertFailureLog('rollback', 'unknown', false, DatastoreErrorException::class, priorFailure: [
+                'phase' => 'callback', 'causeClass' => PDOException::class, 'sqlState' => '40001', 'driverCode' => 1213,
+            ]);
+        } else {
+            self::assertInstanceOf(CoordinatedOperationConflictException::class, $caught);
+            self::assertSame($observed, $caught->getPrevious());
+            $this->assertFailureLog('callback', 'rolled_back', true, DatastoreErrorException::class, '40001', 1213);
+        }
+        self::assertSame(1, $calls);
+        self::assertSame(1, $pdo->injectedFailures);
+        self::assertFalse($pdo->inTransaction());
+        self::assertSame([], $this->visibleEffects());
+        self::assertSame([['id' => '42']], $this->strategy->query('SELECT 42 AS id'));
+    }
+
+    /** @dataProvider queryFailureModes */
+    public function testPriorAttemptEvidenceCannotAuthorizeTheSameFailureAfterALaterCommit(int $mode): void
+    {
+        $pdo = $this->connect(InactiveQueryRollbackPdo::class);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, $mode);
+        $this->usePrimary($pdo);
+        $observed = null;
+        try {
+            $this->coordinate(function (DatabaseStrategy $backend) use ($pdo): void {
+                $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
+                $pdo->faultQuery = 'SELECT 123 AS injected_rollback';
+                $backend->query($pdo->faultQuery);
+            });
+        } catch (CoordinatedOperationConflictException $failure) {
+            $observed = $failure->getPrevious();
+        }
+        self::assertInstanceOf(DatastoreErrorException::class, $observed);
+        self::assertSame([], $this->visibleEffects());
+        $this->assertFailureLog('callback', 'rolled_back', true, DatastoreErrorException::class, '40001', 1213);
+        $this->logger->entries = [];
+        $calls = 0;
+        $caught = null;
+        /** @var callable(DatabaseStrategy): void $operation */
+        $operation = function (DatabaseStrategy $backend) use ($observed, &$calls): void {
+            $calls++;
+            $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 99)', $this->effects->getName()));
+            $this->primary->commit();
+            throw $observed;
+        };
+        try {
+            $this->coordinate($operation);
+        } catch (Throwable $failure) {
+            $caught = $failure;
+        }
+        self::assertInstanceOf(CoordinatedOperationCleanupFailedException::class, $caught);
+        self::assertNotInstanceOf(CoordinatedOperationConflictException::class, $caught);
+        self::assertSame($observed, $caught->getOperationFailure());
+        self::assertInstanceOf(DatastoreErrorException::class, $caught->getPrevious());
+        self::assertSame(1, $calls);
+        self::assertSame(1, $pdo->injectedFailures);
+        self::assertFalse($pdo->inTransaction());
+        self::assertSame([['id' => '1', 'score' => '99']], $this->visibleEffects());
+        $this->assertFailureLog('rollback', 'unknown', false, DatastoreErrorException::class, priorFailure: [
+            'phase' => 'callback', 'causeClass' => DatastoreErrorException::class, 'sqlState' => '40001', 'driverCode' => 1213,
+        ]);
     }
 
     /** @dataProvider ordinaryQueryOutcomes */
@@ -181,5 +283,22 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
     public static function ordinaryQueryOutcomes(): array
     {
         return ['commit' => [false], 'callback failure' => [true]];
+    }
+
+    /** @return array<string, array{int, bool}> */
+    public static function inactiveQueryOutcomes(): array
+    {
+        return [
+            'exception exact' => [PDO::ERRMODE_EXCEPTION, false],
+            'exception replaced' => [PDO::ERRMODE_EXCEPTION, true],
+            'silent exact' => [PDO::ERRMODE_SILENT, false],
+            'silent replaced' => [PDO::ERRMODE_SILENT, true],
+        ];
+    }
+
+    /** @return array<string, array{int}> */
+    public static function queryFailureModes(): array
+    {
+        return ['exception' => [PDO::ERRMODE_EXCEPTION], 'silent' => [PDO::ERRMODE_SILENT]];
     }
 }
