@@ -26,12 +26,6 @@ use ReflectionProperty;
 /** Production library boot and PDO/MySQL path with distinct session quoting. */
 final class BoundFormattingDriverContractTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-        $this->markTestIncomplete('Operation-bound formatting driver proof is pending.');
-    }
-
     /** @dataProvider operations */
     public function testFormattingAndExecutionShareTheBoundSession(string $method, bool $boundUsesBackslashes): void
     {

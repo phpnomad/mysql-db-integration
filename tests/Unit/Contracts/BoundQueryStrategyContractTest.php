@@ -18,12 +18,6 @@ use Throwable;
 
 final class BoundQueryStrategyContractTest extends BoundFormattingContractCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-        $this->markTestIncomplete('Operation-bound query strategy implementation is pending.');
-    }
-
     public function testQueryFormatsAndExecutesThroughTheInjectedBackend(): void
     {
         $backend = $this->createMock(DatabaseStrategy::class);

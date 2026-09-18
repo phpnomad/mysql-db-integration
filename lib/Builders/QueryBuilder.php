@@ -49,10 +49,19 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables, CanBuildWit
     /** @var list<array{table: Table, name: string, alias: string}> */
     protected array $joinedQuerySources = [];
 
+    /** @var list<DatabaseStrategy> */
+    private array $databaseStrategyStack = [];
+
     /** @inheritDoc */
     public function buildWithDatabaseStrategy(DatabaseStrategy $database): string
     {
-        return '';
+        $this->databaseStrategyStack[] = $database;
+
+        try {
+            return $this->build();
+        } finally {
+            array_pop($this->databaseStrategyStack);
+        }
     }
 
     /** @inheritDoc */
@@ -86,7 +95,7 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables, CanBuildWit
         }
 
         $this->select[] = Arr::process(Arr::merge([$field], $fields))
-            ->each(fn(string $field) => $this->prependField($field))
+            ->each(fn (string $field) => $this->prependField($field))
             ->toString();
 
         return $this;
@@ -218,7 +227,7 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables, CanBuildWit
             $alias = $fieldToCount === '*' ? 'count' : $fieldToCount . '_count';
         }
 
-        if($fieldToCount !== '*'){
+        if ($fieldToCount !== '*') {
             $fieldToCount = $this->prependField($fieldToCount);
         }
 
@@ -298,7 +307,7 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables, CanBuildWit
 
         // ClauseBuilder handles its own sanitization, so it's not double-processed.
         if ($this->clauseBuilder !== null) {
-            $whereClause = $this->clauseBuilder->build();
+            $whereClause = $this->buildClause($this->clauseBuilder);
 
             if (!empty($whereClause)) {
                 $this->sql[] = 'WHERE ' . $whereClause;
@@ -315,7 +324,10 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables, CanBuildWit
 
         // If necessary, prepare the query
         if (!empty($this->prepare)) {
-            $sql = Database::parse($sql, ...$this->prepare);
+            $database = $this->getActiveDatabaseStrategy();
+            $sql = $database === null
+                ? Database::parse($sql, ...$this->prepare)
+                : $database->parse($sql, ...$this->prepare);
         }
 
         $this->reset();
@@ -387,6 +399,26 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables, CanBuildWit
         if ($source['table']->getName() !== $source['name'] || $source['table']->getAlias() !== $source['alias']) {
             throw new QueryBuilderException('A table source changed after it was added to the query.');
         }
+    }
+
+    protected function buildClause(ClauseBuilder $clause): string
+    {
+        $database = $this->getActiveDatabaseStrategy();
+
+        if ($database !== null && $clause instanceof CanBuildWithDatabaseStrategy) {
+            return $clause->buildWithDatabaseStrategy($database);
+        }
+
+        return $clause->build();
+    }
+
+    protected function getActiveDatabaseStrategy(): ?DatabaseStrategy
+    {
+        if ($this->databaseStrategyStack === []) {
+            return null;
+        }
+
+        return $this->databaseStrategyStack[count($this->databaseStrategyStack) - 1];
     }
 
     /**
