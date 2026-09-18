@@ -94,20 +94,22 @@ abstract class OwnedPdoCoordinationContractCase extends TestCase
         $this->ownedTables[] = $name;
     }
 
+    /** @param list<string>|null $tables */
     protected function assertFailureLog(
         string $phase,
         string $outcome,
         bool $retryable,
         string $causeClass,
         ?string $sqlState = null,
-        ?int $driverCode = null
+        ?int $driverCode = null,
+        ?array $tables = null
     ): void {
         $expected = [[
             'level' => 'error',
             'message' => 'Coordinated database operation failed.',
             'context' => [
                 'phase' => $phase,
-                'tables' => [$this->parents->getName(), $this->effects->getName()],
+                'tables' => $tables ?? [$this->parents->getName(), $this->effects->getName()],
                 'outcome' => $outcome,
                 'retryable' => $retryable,
                 'causeClass' => $causeClass,

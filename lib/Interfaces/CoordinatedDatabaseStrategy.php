@@ -22,9 +22,10 @@ interface CoordinatedDatabaseStrategy extends DatabaseStrategy
      * @return TResult
      * @throws \InvalidArgumentException Invalid identity or participant input.
      * @throws \PHPNomad\Database\Exceptions\UnsupportedCoordinationException
-     * @throws \PHPNomad\Database\Exceptions\CoordinatedOperationConflictException
-     * @throws \PHPNomad\Database\Exceptions\CoordinatedOperationOutcomeUnknownException
+     * @throws \PHPNomad\Database\Exceptions\CoordinatedOperationConflictException Retry-eligible only after whole-attempt rollback.
+     * @throws \PHPNomad\Database\Exceptions\CoordinatedOperationOutcomeUnknownException Uncertain outcome, not automatically retryable.
      * @throws \PHPNomad\Datastore\Exceptions\RecordNotFoundException
+     * @throws \PHPNomad\Datastore\Exceptions\DatastoreErrorException Ordinary query failure, or failed commit followed by confirmed rollback.
      * @throws \Throwable Original callback failure after confirmed rollback.
      */
     public function coordinate(

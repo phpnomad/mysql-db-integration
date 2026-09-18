@@ -91,24 +91,38 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
         }
     }
 
-    public function testACommitInsideTheCallbackCannotProduceAConfirmedSuccess(): void
+    /** @dataProvider lostOwnership */
+    public function testLosingTransactionOwnershipInsideTheCallbackCannotProduceAConfirmedSuccess(string $action): void
     {
         $calls = 0;
         try {
-            $this->coordinate(function (DatabaseStrategy $backend) use (&$calls): string {
+            $this->coordinate(function (DatabaseStrategy $backend) use (&$calls, $action): string {
                 $calls++;
                 $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
-                $this->primary->commit();
+                if ($action === 'rollback') {
+                    $this->primary->rollBack();
+                } elseif ($action === 'implicit commit') {
+                    $this->primary->exec('ALTER TABLE `' . $this->effects->getName() . '` COMMENT = \'ownership proof\'');
+                } else {
+                    $this->primary->commit();
+                }
                 return 'must not claim owned commit';
             });
             self::fail('Losing the owned transaction must not report success.');
         } catch (CoordinatedOperationOutcomeUnknownException $failure) {
-            self::assertNotEmpty($this->logger->entries);
+            self::assertInstanceOf(DatastoreErrorException::class, $failure->getPrevious());
         }
 
         self::assertSame(1, $calls);
         self::assertFalse($this->primary->inTransaction());
-        self::assertSame([['id' => '1', 'score' => '12']], $this->visibleEffects());
+        self::assertSame($action === 'rollback' ? [] : [['id' => '1', 'score' => '12']], $this->visibleEffects());
+        $this->assertFailureLog('commit', 'unknown', false, DatastoreErrorException::class);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function lostOwnership(): array
+    {
+        return ['commit' => ['commit'], 'rollback' => ['rollback'], 'implicit commit' => ['implicit commit']];
     }
 
     /** @return array<string, array{bool, bool}> */

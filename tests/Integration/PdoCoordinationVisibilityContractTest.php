@@ -36,7 +36,7 @@ final class PdoCoordinationVisibilityContractTest extends OwnedPdoCoordinationCo
         }
         self::assertFalse($this->primary->inTransaction());
         self::assertSame([], $this->visibleEffects());
-        self::assertNotEmpty($this->logger->entries);
+        $this->assertFailureLog('validation', 'unchanged', false, UnsupportedCoordinationException::class);
     }
 
     /** @dataProvider sufficientVisibility */
@@ -85,6 +85,7 @@ final class PdoCoordinationVisibilityContractTest extends OwnedPdoCoordinationCo
         self::assertNotFalse($hiddenRows);
         self::assertSame([], $hiddenRows->fetchAll());
         self::assertFalse($this->primary->inTransaction());
+        $this->assertFailureLog('validation', 'unchanged', false, UnsupportedCoordinationException::class);
     }
 
     private function useRestrictedAccount(string $coverage): void

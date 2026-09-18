@@ -138,7 +138,7 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
 
         self::assertFalse($this->primary->inTransaction());
         self::assertSame([], $this->visibleEffects());
-        self::assertNotEmpty($this->logger->entries);
+        $this->assertFailureLog('coordination', 'rolled_back', false, RecordNotFoundException::class);
     }
 
     /**
@@ -161,7 +161,7 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         self::assertSame(0, $calls);
         self::assertFalse($this->primary->inTransaction());
         self::assertSame([], $this->visibleEffects());
-        self::assertNotEmpty($this->logger->entries);
+        $this->assertFailureLog('validation', 'unchanged', false, InvalidArgumentException::class);
     }
 
     /** @dataProvider ambientOperations */
@@ -185,6 +185,7 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         $this->primary->exec('ROLLBACK TO SAVEPOINT nomad_foreign_marker');
         $this->primary->commit();
         self::assertSame($hasWrite ? [['id' => '1', 'score' => '12']] : [], $this->visibleEffects());
+        $this->assertFailureLog('validation', 'unchanged', false, UnsupportedCoordinationException::class);
     }
 
     public function testNestedCoordinationDoesNotFinishTheOuterOperation(): void
@@ -209,6 +210,7 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         self::assertSame(1, $outerCalls);
         self::assertSame(0, $innerCalls);
         self::assertSame([['id' => '1', 'score' => '12']], $this->visibleEffects());
+        $this->assertFailureLog('validation', 'unchanged', false, UnsupportedCoordinationException::class);
     }
 
     public function testDisabledAutocommitIsRefusedWithoutChangingSessionState(): void
@@ -225,6 +227,7 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         self::assertNotFalse($statement);
         self::assertSame('0', (string) $statement->fetchColumn());
         self::assertSame([], $this->visibleEffects());
+        $this->assertFailureLog('validation', 'unchanged', false, UnsupportedCoordinationException::class);
     }
 
     public function testANontransactionalParticipantIsRejectedBeforeAnyCallbackWrite(): void
@@ -249,7 +252,8 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         self::assertNotFalse($rows);
         self::assertSame([], $rows->fetchAll());
         self::assertFalse($this->primary->inTransaction());
-        self::assertNotEmpty($this->logger->entries);
+        $this->assertFailureLog('coordination', 'rolled_back', false, UnsupportedCoordinationException::class,
+            null, null, [$this->parents->getName(), $name, $this->effects->getName()]);
     }
 
     public function testATemporaryTableCannotMasqueradeAsItsEligiblePermanentNamesake(): void
@@ -272,6 +276,7 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         self::assertSame([], $rows->fetchAll());
         self::assertSame([], $this->visibleEffects());
         self::assertFalse($this->primary->inTransaction());
+        $this->assertFailureLog('coordination', 'rolled_back', false, UnsupportedCoordinationException::class);
     }
 
     public function testAnInaccurateIdentityDescriptorCannotAuthorizeAPartialPrimaryKey(): void
@@ -288,6 +293,7 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
 
         self::assertSame([], $this->visibleEffects());
         self::assertFalse($this->primary->inTransaction());
+        $this->assertFailureLog('coordination', 'rolled_back', false, InvalidArgumentException::class);
     }
 
     public function testTheCoordinationTableMustBeAmongTheParticipants(): void
@@ -303,6 +309,8 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
 
         self::assertSame([], $this->visibleEffects());
         self::assertFalse($this->primary->inTransaction());
+        $this->assertFailureLog('validation', 'unchanged', false, InvalidArgumentException::class,
+            null, null, [$this->effects->getName()]);
     }
 
     /**
@@ -334,7 +342,12 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         self::assertSame(0, $calls);
         self::assertSame([], $this->visibleEffects());
         self::assertFalse($this->primary->inTransaction());
-        self::assertNotEmpty($this->logger->entries);
+        $names = match ($kind) {
+            'empty' => [],
+            'empty table name' => [$this->parents->getName(), ''],
+            default => [$this->parents->getName(), $this->effects->getName()],
+        };
+        $this->assertFailureLog('validation', 'unchanged', false, InvalidArgumentException::class, null, null, $names);
     }
 
     public function testWarningModeIsRefusedWithoutReplacingTheHostConfiguration(): void
@@ -351,7 +364,7 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         self::assertSame(PDO::ERRMODE_WARNING, $this->primary->getAttribute(PDO::ATTR_ERRMODE));
         self::assertFalse($this->primary->inTransaction());
         self::assertSame([], $this->visibleEffects());
-        self::assertNotEmpty($this->logger->entries);
+        $this->assertFailureLog('validation', 'unchanged', false, UnsupportedCoordinationException::class);
         self::assertSame(1, $this->strategy->query('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 12)'));
         self::assertSame([['id' => '1', 'score' => '12']], $this->visibleEffects());
     }
@@ -373,6 +386,7 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         self::assertSame(str_replace(' ', '-', $isolation), $result->fetchColumn());
         self::assertFalse($this->primary->inTransaction());
         self::assertSame([], $this->visibleEffects());
+        $this->assertFailureLog('validation', 'unchanged', false, UnsupportedCoordinationException::class);
     }
 
     public function testAViewCannotAuthorizeItsUnderlyingTables(): void
@@ -395,6 +409,8 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
 
         self::assertSame([], $this->visibleEffects());
         self::assertFalse($this->primary->inTransaction());
+        $this->assertFailureLog('coordination', 'rolled_back', false, UnsupportedCoordinationException::class,
+            null, null, [$this->parents->getName(), $name]);
     }
 
     public function testATriggerCannotWriteAnUndeclaredTable(): void
@@ -419,6 +435,7 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         self::assertNotFalse($hidden);
         self::assertSame([], $hidden->fetchAll());
         self::assertFalse($this->primary->inTransaction());
+        $this->assertFailureLog('coordination', 'rolled_back', false, UnsupportedCoordinationException::class);
     }
 
     /** @dataProvider cascadingForeignKeys */

@@ -63,20 +63,21 @@ final class PdoCoordinationConcurrencyContractTest extends OwnedPdoCoordinationC
         self::assertSame($kind === 'duplicate claim' ? [['id' => '31']] : [], $claims->fetchAll());
     }
 
-    /** @dataProvider supportedIsolationLevels */
-    public function testDistinctCompoundIdentitiesProgressWhileTheFirstOwnerStillHoldsItsGuard(string $isolation): void
+    /** @dataProvider distinctCompoundIdentities */
+    public function testDistinctCompoundIdentitiesProgressWhileTheFirstOwnerStillHoldsItsGuard(string $isolation, int $tenant, int $record): void
     {
         $claimTable = $this->createClaims();
+        $this->observer->exec('INSERT INTO `' . $this->parents->getName() . '` VALUES (1, 8)');
         $this->observer->exec('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 10), (2, 10)');
         $first = $this->client($isolation, $claimTable, 1, 1, 2, 0);
         $first->send(['action' => 'run']);
         $first->await('HOLDING');
 
-        $second = $this->client($isolation, $claimTable, 2, 2, 3, 0);
+        $second = $this->client($isolation, $claimTable, $tenant, 2, 3, 0, ['recordId' => $record]);
         $second->send(['action' => 'run']);
         $second->await('ATTEMPT');
         self::assertSame('entered', $this->observeWaitOrEntry($second, $first),
-            'The tenant component of the primary identity must permit independent progress.');
+            'Changing either component of the primary identity must permit independent progress.');
         $second->await('HOLDING');
         self::assertSame([['id' => '1', 'score' => '10'], ['id' => '2', 'score' => '10']], $this->visibleEffects());
 
@@ -205,10 +206,10 @@ final class PdoCoordinationConcurrencyContractTest extends OwnedPdoCoordinationC
     /** @param array<string, int|string> $extra */
     private function client(string $isolation, string $claims, int $tenant, int $effect, int $delta, int $claim, array $extra = []): CoordinationClient
     {
-        $client = new CoordinationClient([
+        $client = new CoordinationClient($extra + [
             'isolation' => $isolation, 'parents' => $this->parents->getName(), 'effects' => $this->effects->getName(),
             'claims' => $claims, 'tenantId' => $tenant, 'recordId' => 7, 'effectId' => $effect, 'delta' => $delta, 'claimId' => $claim,
-        ] + $extra);
+        ]);
         $this->clients[] = $client;
         return $client;
     }
@@ -315,6 +316,17 @@ final class PdoCoordinationConcurrencyContractTest extends OwnedPdoCoordinationC
             foreach (['first', 'middle', 'last'] as $participant) {
                 $cases[$isolation . ' ' . $participant] = [$isolation, $participant];
             }
+        }
+        return $cases;
+    }
+
+    /** @return array<string, array{string, int, int}> */
+    public static function distinctCompoundIdentities(): array
+    {
+        $cases = [];
+        foreach (['READ COMMITTED', 'REPEATABLE READ'] as $isolation) {
+            $cases[$isolation . ' tenant component'] = [$isolation, 2, 7];
+            $cases[$isolation . ' record component'] = [$isolation, 1, 8];
         }
         return $cases;
     }
