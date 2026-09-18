@@ -1,6 +1,6 @@
 <?php
 
-namespace PHPNomad\MySql\Integration\Tests\Integration;
+namespace PHPNomad\MySql\Integration\Tests\Unit\Contracts;
 
 use Error;
 use PHPNomad\Database\Interfaces\ClauseBuilder;
@@ -9,7 +9,8 @@ use PHPNomad\MySql\Integration\Builders\MySqlClauseBuilder;
 use PHPNomad\MySql\Integration\Builders\QueryBuilder;
 use PHPNomad\MySql\Integration\Facades\Database;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
-use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\BoundFormattingContractCase;
+use PHPNomad\MySql\Integration\Tests\Unit\Fixtures\BoundFormattingContractCase;
+use PHPNomad\MySql\Integration\Tests\Unit\Fixtures\BoundClauseBuilder;
 use RuntimeException;
 use Throwable;
 
@@ -118,6 +119,69 @@ final class BoundQueryBuildContractTest extends BoundFormattingContractCase
         self::assertSame('SELECT * FROM scores AS s WHERE s.score IS NULL', $query->buildWithDatabaseStrategy($bound));
     }
 
+    public function testACapableCustomWhereBuilderReceivesTheSuppliedBackend(): void
+    {
+        $bound = $this->createMock(DatabaseStrategy::class);
+        $bound->expects(self::never())->method('parse');
+        $bound->expects(self::never())->method('query');
+        $this->globalDatabase->expects(self::never())->method('parse');
+        $table = $this->table();
+        $where = $this->createMock(BoundClauseBuilder::class);
+        $where->expects(self::once())->method('useTable')->with($table)->willReturnSelf();
+        $where->expects(self::never())->method('build');
+        $where->expects(self::once())->method('buildWithDatabaseStrategy')->with(self::identicalTo($bound))->willReturn('CUSTOM');
+        $query = (new QueryBuilder())->from($table)->select('*')->where($where);
+
+        self::assertSame('SELECT * FROM scores AS s WHERE CUSTOM', $query->buildWithDatabaseStrategy($bound));
+    }
+
+    /** @dataProvider nestedOutcomes */
+    public function testReentrantBoundBuildRestoresTheOuterBackend(string $outcome): void
+    {
+        $failure = match ($outcome) {
+            'exception' => new RuntimeException('Inner parser failed'),
+            'error' => new Error('Inner parser failed'),
+            default => null,
+        };
+        $table = $this->table();
+        $builder = new PreparedTokenQueryBuilder();
+        $sql = 'SELECT * FROM scores AS s ORDER BY ?s';
+        $inner = $this->createMock(DatabaseStrategy::class);
+        $inner->expects(self::never())->method('query');
+        if ($failure === null) {
+            $inner->expects(self::once())->method('parse')->with($sql, 'inner')->willReturn('INNER');
+        } else {
+            $inner->expects(self::once())->method('parse')->with($sql, 'inner')->willThrowException($failure);
+        }
+        $outer = $this->createMock(DatabaseStrategy::class);
+        $outer->expects(self::never())->method('query');
+        $calls = [];
+        $outer->expects(self::exactly(2))->method('parse')->willReturnCallback(
+            static function (string $query, mixed ...$values) use ($builder, $table, $inner, $failure, &$calls): string {
+                $calls[] = [$query, $values];
+                if (count($calls) === 2) {
+                    return 'OUTER RESUMED';
+                }
+                $caught = null;
+                $result = null;
+                try {
+                    $result = $builder->reset()->from($table)->select('*')->withPreparedOrder('inner')->buildWithDatabaseStrategy($inner);
+                } catch (Throwable $actual) {
+                    $caught = $actual;
+                }
+                self::assertSame($failure, $caught);
+                self::assertSame($failure === null ? 'INNER' : null, $result);
+                self::assertSame('OUTER RESUMED', $builder->reset()->from($table)->select('*')->withPreparedOrder('resumed')->build());
+                return 'OUTER';
+            }
+        );
+        $this->globalDatabase->expects(self::once())->method('parse')->with($sql, 'ordinary')->willReturn('GLOBAL');
+
+        self::assertSame('OUTER', $builder->from($table)->select('*')->withPreparedOrder('outer')->buildWithDatabaseStrategy($outer));
+        self::assertSame([[$sql, ['outer']], [$sql, ['resumed']]], $calls);
+        self::assertSame('GLOBAL', $builder->from($table)->select('*')->withPreparedOrder('ordinary')->build());
+    }
+
     public function testTheGlobalBindingStaysIntactDuringTheBoundParse(): void
     {
         $this->globalDatabase->expects(self::once())->method('parse')->with('PROBE', 8)->willReturn('GLOBAL');
@@ -155,6 +219,12 @@ final class BoundQueryBuildContractTest extends BoundFormattingContractCase
     public static function failures(): array
     {
         return ['exception' => ['exception'], 'error' => ['error']];
+    }
+
+    /** @return array<string, array{string}> */
+    public static function nestedOutcomes(): array
+    {
+        return ['success' => ['success'], 'exception' => ['exception'], 'error' => ['error']];
     }
 }
 

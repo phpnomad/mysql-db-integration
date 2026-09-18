@@ -1,6 +1,6 @@
 <?php
 
-namespace PHPNomad\MySql\Integration\Tests\Integration\Fixtures;
+namespace PHPNomad\MySql\Integration\Tests\Unit\Fixtures;
 
 use PHPNomad\Database\Factories\Column;
 use PHPNomad\Database\Interfaces\Table;
@@ -11,7 +11,7 @@ use PHPNomad\MySql\Integration\Tests\TestCase;
 use PHPUnit\Framework\MockObject\MockObject;
 use ReflectionProperty;
 
-/** Real builders and container, with verified parser boundaries and no database I/O. */
+/** Isolated formatting contracts with verified parser doubles and facade setup. */
 abstract class BoundFormattingContractCase extends TestCase
 {
     private ReflectionProperty $facadeInstance;

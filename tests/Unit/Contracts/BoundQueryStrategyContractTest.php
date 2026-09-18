@@ -1,15 +1,18 @@
 <?php
 
-namespace PHPNomad\MySql\Integration\Tests\Integration;
+namespace PHPNomad\MySql\Integration\Tests\Unit\Contracts;
 
 use Error;
+use PHPNomad\Database\Interfaces\ClauseBuilder;
 use PHPNomad\Database\Interfaces\QueryBuilder as QueryBuilderInterface;
 use PHPNomad\Database\Services\TableSchemaService;
 use PHPNomad\MySql\Integration\Builders\MySqlClauseBuilder;
 use PHPNomad\MySql\Integration\Builders\QueryBuilder;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\MySql\Integration\Strategies\QueryStrategy;
-use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\BoundFormattingContractCase;
+use PHPNomad\MySql\Integration\Tests\Unit\Fixtures\BoundFormattingContractCase;
+use PHPNomad\MySql\Integration\Tests\Unit\Fixtures\BoundClauseBuilder;
+use PHPNomad\MySql\Integration\Tests\Unit\Fixtures\BoundQueryBuilder;
 use RuntimeException;
 use Throwable;
 
@@ -76,6 +79,52 @@ final class BoundQueryStrategyContractTest extends BoundFormattingContractCase
         self::assertSame([['value' => 1]], $this->strategy($backend)->query($builder));
     }
 
+    public function testACapableCustomQueryBuilderReceivesTheExecutionBackend(): void
+    {
+        $backend = $this->createMock(DatabaseStrategy::class);
+        $backend->expects(self::never())->method('parse');
+        $backend->expects(self::once())->method('query')->with('CUSTOM')->willReturn([['value' => 1]]);
+        $this->globalDatabase->expects(self::never())->method('parse');
+        $builder = $this->createMock(BoundQueryBuilder::class);
+        $builder->expects(self::never())->method('build');
+        $builder->expects(self::once())->method('buildWithDatabaseStrategy')->with(self::identicalTo($backend))->willReturn('CUSTOM');
+
+        self::assertSame([['value' => 1]], $this->strategy($backend)->query($builder));
+    }
+
+    /** @dataProvider customWriteBuilders */
+    public function testCustomWriteBuildersUseTheirSupportedPublicContract(string $method, bool $capable): void
+    {
+        $backend = $this->createMock(DatabaseStrategy::class);
+        if ($method === 'update') {
+            $backend->expects(self::once())->method('parse')
+                ->with('UPDATE ?n AS ?n SET ?n = ?s WHERE CUSTOM', 'scores', 's', 'score', 12)->willReturn('WRITE');
+        } else {
+            $backend->expects(self::once())->method('parse')
+                ->with('DELETE ?n FROM ?n AS ?n WHERE CUSTOM', 's', 'scores', 's')->willReturn('WRITE');
+        }
+        $backend->expects(self::once())->method('query')->with('WRITE')->willReturn(0);
+        $this->globalDatabase->expects(self::never())->method('parse');
+        $table = $this->table();
+        $builder = $this->createMock($capable ? BoundClauseBuilder::class : ClauseBuilder::class);
+        $builder->expects(self::once())->method('reset')->willReturnSelf();
+        $builder->expects(self::once())->method('useTable')->with($table)->willReturnSelf();
+        $builder->expects(self::once())->method('andWhere')->with('id', '=', 7)->willReturnSelf();
+        if ($capable) {
+            $builder->expects(self::never())->method('build');
+            $builder->expects(self::once())->method('buildWithDatabaseStrategy')->with(self::identicalTo($backend))->willReturn('CUSTOM');
+        } else {
+            $builder->expects(self::once())->method('build')->willReturn('CUSTOM');
+        }
+        $strategy = new QueryStrategy($backend, $this->createMock(TableSchemaService::class), $builder);
+
+        if ($method === 'update') {
+            $strategy->update($table, ['id' => 7], ['score' => 12]);
+        } else {
+            $strategy->delete($table, ['id' => 7]);
+        }
+    }
+
     /** @dataProvider failurePaths */
     public function testFormattingFailureReachesTheCallerWithoutExecutingAQuery(string $method, string $kind): void
     {
@@ -112,6 +161,15 @@ final class BoundQueryStrategyContractTest extends BoundFormattingContractCase
     public static function writes(): array
     {
         return ['update' => ['update'], 'delete' => ['delete']];
+    }
+
+    /** @return array<string, array{string, bool}> */
+    public static function customWriteBuilders(): array
+    {
+        return [
+            'capable update' => ['update', true], 'plain update' => ['update', false],
+            'capable delete' => ['delete', true], 'plain delete' => ['delete', false],
+        ];
     }
 
     /** @return array<string, array{string, string}> */

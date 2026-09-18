@@ -1,6 +1,6 @@
 <?php
 
-namespace PHPNomad\MySql\Integration\Tests\Integration;
+namespace PHPNomad\MySql\Integration\Tests\Unit\Contracts;
 
 use Error;
 use PHPNomad\Database\Interfaces\ClauseBuilder;
@@ -8,7 +8,8 @@ use PHPNomad\Database\Interfaces\Table;
 use PHPNomad\MySql\Integration\Builders\MySqlClauseBuilder;
 use PHPNomad\MySql\Integration\Facades\Database;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
-use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\BoundFormattingContractCase;
+use PHPNomad\MySql\Integration\Tests\Unit\Fixtures\BoundFormattingContractCase;
+use PHPNomad\MySql\Integration\Tests\Unit\Fixtures\BoundClauseBuilder;
 use RuntimeException;
 use Throwable;
 
@@ -107,6 +108,65 @@ final class BoundClauseBuildContractTest extends BoundFormattingContractCase
         $builder = (new MySqlClauseBuilder())->useTable($this->table())->group('AND', $child);
 
         self::assertSame('(s.score IS NULL)', $builder->buildWithDatabaseStrategy($bound));
+    }
+
+    public function testACapableCustomChildReceivesTheSuppliedBackend(): void
+    {
+        $bound = $this->createMock(DatabaseStrategy::class);
+        $bound->expects(self::never())->method('parse');
+        $bound->expects(self::never())->method('query');
+        $this->globalDatabase->expects(self::never())->method('parse');
+        $child = $this->createMock(BoundClauseBuilder::class);
+        $child->expects(self::never())->method('build');
+        $child->expects(self::once())->method('buildWithDatabaseStrategy')->with(self::identicalTo($bound))->willReturn('CUSTOM');
+        $builder = (new MySqlClauseBuilder())->useTable($this->table())->group('AND', $child);
+
+        self::assertSame('(CUSTOM)', $builder->buildWithDatabaseStrategy($bound));
+    }
+
+    /** @dataProvider nestedOutcomes */
+    public function testReentrantBoundBuildRestoresTheOuterBackend(string $outcome): void
+    {
+        $failure = match ($outcome) {
+            'exception' => new RuntimeException('Inner parser failed'),
+            'error' => new Error('Inner parser failed'),
+            default => null,
+        };
+        $builder = (new MySqlClauseBuilder())->useTable($this->table());
+        $inner = $this->createMock(DatabaseStrategy::class);
+        $inner->expects(self::never())->method('query');
+        if ($failure === null) {
+            $inner->expects(self::once())->method('parse')->with('s.id = ?s', 2)->willReturn('INNER');
+        } else {
+            $inner->expects(self::once())->method('parse')->with('s.id = ?s', 2)->willThrowException($failure);
+        }
+        $outer = $this->createMock(DatabaseStrategy::class);
+        $outer->expects(self::never())->method('query');
+        $calls = [];
+        $outer->expects(self::exactly(2))->method('parse')->willReturnCallback(
+            static function (string $sql, mixed ...$values) use ($builder, $inner, $failure, &$calls): string {
+                $calls[] = [$sql, $values];
+                if (count($calls) === 2) {
+                    return 'OUTER RESUMED';
+                }
+                $caught = null;
+                $result = null;
+                try {
+                    $result = $builder->reset()->where('id', '=', 2)->buildWithDatabaseStrategy($inner);
+                } catch (Throwable $actual) {
+                    $caught = $actual;
+                }
+                self::assertSame($failure, $caught);
+                self::assertSame($failure === null ? 'INNER' : null, $result);
+                self::assertSame('OUTER RESUMED', $builder->reset()->where('id', '=', 3)->build());
+                return 'OUTER';
+            }
+        );
+        $this->globalDatabase->expects(self::once())->method('parse')->with('s.id = ?s', 4)->willReturn('GLOBAL');
+
+        self::assertSame('OUTER', $builder->where('id', '=', 1)->buildWithDatabaseStrategy($outer));
+        self::assertSame([['s.id = ?s', [1]], ['s.id = ?s', [3]]], $calls);
+        self::assertSame('GLOBAL', $builder->where('id', '=', 4)->build());
     }
 
     /** @dataProvider nestedOutcomes */
