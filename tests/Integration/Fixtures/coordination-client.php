@@ -3,6 +3,7 @@
 namespace PHPNomad\MySql\Integration\Tests\Integration\Fixtures;
 
 use PDO;
+use PDOException;
 use PHPNomad\MySql\Integration\Connections\PdoConnection;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\MySql\Integration\Strategies\PdoCoordinatedDatabaseStrategy;
@@ -172,8 +173,16 @@ try {
     emit('DONE', ['result' => $result, 'callbackCalls' => $callbackCalls, 'logs' => $logger->entries]);
 } catch (Throwable $failure) {
     $cause = $failure->getPrevious();
+    $driverCause = null;
+    for ($node = $cause; $node !== null; $node = $node->getPrevious()) {
+        if ($node instanceof PDOException) {
+            $driverCause = ['class' => get_class($node), 'sqlState' => $node->errorInfo[0] ?? null,
+                'driverCode' => $node->errorInfo[1] ?? null];
+            break;
+        }
+    }
     emit('ERROR', ['class' => get_class($failure), 'message' => $failure->getMessage(),
-        'causeClass' => $cause === null ? null : get_class($cause),
+        'causeClass' => $cause === null ? null : get_class($cause), 'driverCause' => $driverCause,
         'callbackCalls' => $callbackCalls, 'transactionActive' => $pdo?->inTransaction(), 'logs' => $logger->entries]);
     exit(1);
 }

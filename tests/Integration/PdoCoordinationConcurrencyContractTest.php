@@ -286,6 +286,8 @@ final class PdoCoordinationConcurrencyContractTest extends OwnedPdoCoordinationC
         self::assertIsString($causeClass);
         self::assertTrue(is_a($causeClass, \Throwable::class, true),
             'A conflict must retain a real failure cause independently of its log.');
+        self::assertSame(['class' => \PDOException::class, 'sqlState' => $sqlState, 'driverCode' => $driverCode],
+            $result['driverCause'], 'The conflict cause chain must retain the actual driver failure, independently of its log.');
         $expected = [
             'phase' => $phase, 'tables' => [$this->parents->getName(), $this->effects->getName(), $claims],
             'outcome' => 'rolled_back', 'retryable' => true, 'causeClass' => $causeClass,
