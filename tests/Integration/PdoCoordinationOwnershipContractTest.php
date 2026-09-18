@@ -67,7 +67,8 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
         try {
             $this->coordinate($operation);
             self::fail('A query that ends the owned transaction must report an uncertain operation.');
-        } catch (CoordinatedOperationCleanupFailedException $failure) {
+        } catch (DatastoreErrorException $failure) {
+            self::assertInstanceOf(CoordinatedOperationCleanupFailedException::class, $failure);
             self::assertNotInstanceOf(CoordinatedOperationConflictException::class, $failure);
             self::assertInstanceOf(DatastoreErrorException::class, $failure->getOperationFailure());
             $this->assertUnknownCleanupLog($failure);
@@ -95,7 +96,8 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
         try {
             $this->coordinate($operation);
             self::fail('The supplied backend must refuse a query outside its owned transaction.');
-        } catch (CoordinatedOperationCleanupFailedException $failure) {
+        } catch (DatastoreErrorException $failure) {
+            self::assertInstanceOf(CoordinatedOperationCleanupFailedException::class, $failure);
             self::assertNotInstanceOf(CoordinatedOperationConflictException::class, $failure);
             self::assertInstanceOf(DatastoreErrorException::class, $failure->getOperationFailure());
             $this->assertUnknownCleanupLog($failure);
@@ -125,7 +127,8 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
         try {
             $this->coordinate($operation);
             self::fail('Error numbers alone cannot establish whole-attempt rollback.');
-        } catch (CoordinatedOperationCleanupFailedException $failure) {
+        } catch (DatastoreErrorException $failure) {
+            self::assertInstanceOf(CoordinatedOperationCleanupFailedException::class, $failure);
             self::assertNotInstanceOf(CoordinatedOperationConflictException::class, $failure);
             self::assertSame($original, $failure->getOperationFailure());
             self::assertInstanceOf(DatastoreErrorException::class, $failure->getPrevious());
