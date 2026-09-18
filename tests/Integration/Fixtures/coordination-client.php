@@ -124,7 +124,7 @@ try {
         function (DatabaseStrategy $backend) use ($config, $effects, $claims, &$callbackCalls): array {
             $callbackCalls++;
             emit('CALLBACK_ENTERED');
-            if (($config['holdBeforeIo'] ?? 0) === 1) {
+            if ($callbackCalls === 1 && ($config['holdBeforeIo'] ?? 0) === 1) {
                 emit('BEFORE_IO');
                 if ((readMessage()['action'] ?? null) !== 'continue') {
                     throw new RuntimeException('Expected the first-I/O barrier.');
@@ -159,9 +159,11 @@ try {
                 $backend->query($backend->parse($sql, $effects->getName(), $after, $effectId));
             }
             $result = ['before' => $before, 'after' => $after, 'applied' => $applied];
-            emit('HOLDING', ['result' => $result]);
-            if ((readMessage()['action'] ?? null) !== 'release') {
-                throw new RuntimeException('Expected the release barrier.');
+            if ($callbackCalls === 1) {
+                emit('HOLDING', ['result' => $result]);
+                if ((readMessage()['action'] ?? null) !== 'release') {
+                    throw new RuntimeException('Expected the release barrier.');
+                }
             }
             if (isset($config['thenEffectId'])) {
                 $backend->query($backend->parse('UPDATE ?n SET score = score + ?i WHERE id = ?i',
