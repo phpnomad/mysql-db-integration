@@ -45,9 +45,9 @@ identifier, successful writes and reads, empty results, and zero affected rows.
 A recording PDO subclass forwards every query to the real driver and captures
 its actual exception and attempt count. The tests therefore prove original
 cause identity, unchanged driver details, and no query retry at the driver
-boundary. It also observes exec and prepare calls so a replay cannot escape
-observation through another driver method. The recording subclass never returns
-fake database results.
+boundary. The recording subclass also observes exec and prepare calls so a
+replay cannot escape observation through another driver method. It forwards
+both methods to the real driver.
 The warning-mode test installs a recording host handler and restores it in a
 finally block. It must observe the actual warning, not merely prove that the
 strategy constructed a safe exception after diagnostics had escaped elsewhere.
