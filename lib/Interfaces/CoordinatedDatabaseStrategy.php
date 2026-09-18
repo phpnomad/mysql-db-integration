@@ -10,7 +10,8 @@ interface CoordinatedDatabaseStrategy extends DatabaseStrategy
     /**
      * Own one coordinated operation on this database resource without retries.
      *
-     * Unsupported participants or ambient operations fail before the callback
+     * Within the adapter's documented deployment preconditions, observable
+     * unsupported participants or ambient operations fail before the callback
      * or any write. All participating writes commit together. The callback
      * must use only the supplied backend and perform no external effects.
      * This seam does not expose application datastore operations.

@@ -162,6 +162,12 @@ final class PdoCoordinationVisibilityContractTest extends OwnedPdoCoordinationCo
         if ($coverage === 'schema all') {
             $this->observer->exec('GRANT ALL PRIVILEGES ON ' . $database . '.* TO ' . $account);
         }
+        if ($coverage === 'global trigger') {
+            $this->observer->exec('GRANT TRIGGER ON *.* TO ' . $account);
+        }
+        if ($coverage === 'global all') {
+            $this->observer->exec('GRANT ALL PRIVILEGES ON *.* TO ' . $account);
+        }
         if ($coverage === 'table all') {
             foreach ([$this->parents->getName(), $this->effects->getName()] as $table) {
                 $this->observer->exec('GRANT ALL PRIVILEGES ON ' . $database . '.`' . $table . '` TO ' . $account);
@@ -218,6 +224,7 @@ final class PdoCoordinationVisibilityContractTest extends OwnedPdoCoordinationCo
         return [
             'schema' => ['schema'], 'each table' => ['each table'],
             'schema all' => ['schema all'], 'table all' => ['table all'],
+            'global trigger' => ['global trigger'], 'global all' => ['global all'],
         ];
     }
 
