@@ -328,7 +328,7 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
     public function testATemporaryTableCannotMasqueradeAsItsEligiblePermanentNamesake(): void
     {
         $name = $this->effects->getName();
-        $this->primary->exec('CREATE TEMPORARY TABLE `' . $name . '` (id INT PRIMARY KEY, score INT) ENGINE=MyISAM');
+        $this->primary->exec('CREATE TEMPORARY TABLE `' . $name . '` (id INT PRIMARY KEY, score INT) ENGINE=InnoDB');
         $calls = 0;
         try {
             $this->coordinate(function (DatabaseStrategy $backend) use (&$calls, $name): void {
@@ -600,7 +600,7 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
             $columns = $position === 0
                 ? '(tenantId BIGINT NOT NULL, id BIGINT NOT NULL, PRIMARY KEY (tenantId, id))'
                 : '(id BIGINT PRIMARY KEY, score BIGINT NOT NULL)';
-            $this->primary->exec('CREATE TEMPORARY TABLE `' . $targetName . '` ' . $columns . ' ENGINE=MyISAM');
+            $this->primary->exec('CREATE TEMPORARY TABLE `' . $targetName . '` ' . $columns . ' ENGINE=InnoDB');
             if ($position === 0) {
                 $this->primary->exec('INSERT INTO `' . $targetName . '` VALUES (1, 7)');
             }
