@@ -1,0 +1,554 @@
+<?php
+
+namespace PHPNomad\MySql\Integration\Tests\Integration;
+
+use Error;
+use InvalidArgumentException;
+use PDO;
+use PHPNomad\Database\Exceptions\UnsupportedCoordinationException;
+use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
+use PHPNomad\Datastore\Exceptions\RecordNotFoundException;
+use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
+use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\CoordinationTable;
+use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\OwnedPdoCoordinationContractCase;
+use RuntimeException;
+
+/** Real-resource atomicity and ownership. Concurrency has a separate contract. */
+final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
+{
+    public function testCommitsAllWritesOnTheOwnedConnectionAndReturnsTheExactValue(): void
+    {
+        $sentinel = new \stdClass();
+        $calls = 0;
+        $result = $this->coordinate(function (DatabaseStrategy $backend) use (&$calls, $sentinel) {
+            $calls++;
+            $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12), (2, 15)', $this->effects->getName()));
+            self::assertSame([], $this->visibleEffects());
+            self::assertTrue($this->primary->inTransaction());
+            return $sentinel;
+        });
+
+        self::assertSame($sentinel, $result);
+        self::assertSame(1, $calls);
+        self::assertSame([['id' => '1', 'score' => '12'], ['id' => '2', 'score' => '15']], $this->visibleEffects());
+        self::assertFalse($this->primary->inTransaction());
+        self::assertSame([], $this->logger->entries);
+    }
+
+    /**
+     * @dataProvider validIdentityValues
+     * @param int|string $value
+     */
+    public function testCompleteIdentityValuesAreNotTreatedAsFlagsOrInterpolated($value): void
+    {
+        $name = 'nomad_identity_' . bin2hex(random_bytes(6));
+        $this->createTable($name, '(tenantId VARBINARY(128) NOT NULL, id BIGINT NOT NULL, PRIMARY KEY (tenantId, id))');
+        $statement = $this->observer->prepare('INSERT INTO `' . $name . '` VALUES (?, 7)');
+        self::assertNotFalse($statement);
+        $statement->execute([$value]);
+        $parent = new CoordinationTable($name, ['tenantId', 'id']);
+        $calls = 0;
+        $result = $this->strategy->coordinate($parent, ['id' => 7, 'tenantId' => $value], [$parent, $this->effects],
+            function (DatabaseStrategy $backend) use (&$calls): string {
+                $calls++;
+                $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
+                return 'committed';
+            });
+        self::assertSame('committed', $result);
+        self::assertSame(1, $calls);
+        self::assertSame([['id' => '1', 'score' => '12']], $this->visibleEffects());
+        self::assertFalse($this->primary->inTransaction());
+        self::assertSame([], $this->logger->entries);
+    }
+
+    public function testSilentModeCanCommitAValidZeroAffectedRowResult(): void
+    {
+        $this->primary->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_SILENT);
+        $calls = 0;
+        $result = $this->coordinate(function (DatabaseStrategy $backend) use (&$calls) {
+            $calls++;
+            return $backend->query($backend->parse('UPDATE ?n SET score = 12 WHERE id = 99', $this->effects->getName()));
+        });
+        self::assertSame(0, $result);
+        self::assertSame(1, $calls);
+        self::assertSame([], $this->visibleEffects());
+        self::assertFalse($this->primary->inTransaction());
+        self::assertSame(PDO::ERRMODE_SILENT, $this->primary->getAttribute(PDO::ATTR_ERRMODE));
+        self::assertSame([], $this->logger->entries);
+    }
+
+    /** @dataProvider callbackFailures */
+    public function testEveryCallbackThrowableRollsBackAndPropagatesUnchanged(string $kind): void
+    {
+        $original = $kind === 'error' ? new Error('private-callback-value') : new RuntimeException('private-callback-value');
+        $caught = null;
+        $calls = 0;
+        try {
+            $this->coordinate(function (DatabaseStrategy $backend) use (&$calls, $original): void {
+                $calls++;
+                $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
+                throw $original;
+            });
+        } catch (RuntimeException|Error $failure) {
+            $caught = $failure;
+        }
+
+        self::assertSame($original, $caught);
+        self::assertSame(1, $calls);
+        self::assertSame([], $this->visibleEffects());
+        self::assertFalse($this->primary->inTransaction());
+        $this->assertFailureLog('callback', 'rolled_back', false, get_class($original));
+        self::assertSame('reused', $this->coordinate(static fn (): string => 'reused'));
+    }
+
+    /** @dataProvider driverModes */
+    public function testALaterWriteFailureRollsBackEarlierWritesWithoutRetry(int $mode): void
+    {
+        $this->primary->setAttribute(PDO::ATTR_ERRMODE, $mode);
+        $calls = 0;
+        try {
+            $this->coordinate(function (DatabaseStrategy $backend) use (&$calls): void {
+                $calls++;
+                $sql = $backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName());
+                $backend->query($sql);
+                $backend->query($sql);
+            });
+            self::fail('The second write must fail.');
+        } catch (DatastoreErrorException $failure) {
+            self::assertSame('Failed to execute query.', $failure->getMessage());
+        }
+
+        self::assertSame(1, $calls);
+        self::assertSame([], $this->visibleEffects());
+        self::assertFalse($this->primary->inTransaction());
+        self::assertSame($mode, $this->primary->getAttribute(PDO::ATTR_ERRMODE));
+        $this->assertFailureLog('callback', 'rolled_back', false, DatastoreErrorException::class, '23000', 1062);
+    }
+
+    public function testAMissingParentNeverInvokesTheCallback(): void
+    {
+        $calls = 0;
+        try {
+            $this->strategy->coordinate($this->parents, ['tenantId' => 9, 'id' => 7], [$this->parents, $this->effects],
+                function () use (&$calls): void { $calls++; });
+            self::fail('The parent does not exist.');
+        } catch (RecordNotFoundException $failure) {
+            self::assertSame(0, $calls);
+        }
+
+        self::assertFalse($this->primary->inTransaction());
+        self::assertSame([], $this->visibleEffects());
+        self::assertNotEmpty($this->logger->entries);
+    }
+
+    /**
+     * @dataProvider invalidIdentities
+     * @param array<array-key, mixed> $identity
+     */
+    public function testMalformedOrIncompleteIdentityFailsBeforeTheCallback(array $identity): void
+    {
+        $calls = 0;
+        $caught = null;
+        try {
+            (new \ReflectionMethod($this->strategy, 'coordinate'))->invokeArgs($this->strategy, [
+                $this->parents, $identity, [$this->parents, $this->effects],
+                function () use (&$calls): void { $calls++; },
+            ]);
+        } catch (\Throwable $failure) {
+            $caught = $failure;
+        }
+        self::assertInstanceOf(InvalidArgumentException::class, $caught);
+        self::assertSame(0, $calls);
+        self::assertFalse($this->primary->inTransaction());
+        self::assertSame([], $this->visibleEffects());
+        self::assertNotEmpty($this->logger->entries);
+    }
+
+    /** @dataProvider ambientOperations */
+    public function testAForeignTransactionRetainsItsWritesAndSavepoint(bool $hasWrite): void
+    {
+        $this->primary->beginTransaction();
+        if ($hasWrite) {
+            $this->primary->exec('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 12)');
+        }
+        $this->primary->exec('SAVEPOINT nomad_foreign_marker');
+        $calls = 0;
+        try {
+            $this->coordinate(function () use (&$calls): void { $calls++; });
+            self::fail('The foreign operation must be refused.');
+        } catch (UnsupportedCoordinationException $failure) {
+            self::assertSame(0, $calls);
+        }
+
+        self::assertTrue($this->primary->inTransaction());
+        self::assertSame([], $this->visibleEffects());
+        $this->primary->exec('ROLLBACK TO SAVEPOINT nomad_foreign_marker');
+        $this->primary->commit();
+        self::assertSame($hasWrite ? [['id' => '1', 'score' => '12']] : [], $this->visibleEffects());
+    }
+
+    public function testNestedCoordinationDoesNotFinishTheOuterOperation(): void
+    {
+        $innerCalls = 0;
+        $outerCalls = 0;
+        $result = $this->coordinate(function (DatabaseStrategy $backend) use (&$innerCalls, &$outerCalls): string {
+            $outerCalls++;
+            $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
+            try {
+                $this->coordinate(function () use (&$innerCalls): void { $innerCalls++; });
+                self::fail('Nested coordination must fail.');
+            } catch (UnsupportedCoordinationException $failure) {
+                self::assertSame(0, $innerCalls);
+            }
+            self::assertTrue($this->primary->inTransaction());
+            self::assertSame([], $this->visibleEffects());
+            return 'outer committed';
+        });
+
+        self::assertSame('outer committed', $result);
+        self::assertSame(1, $outerCalls);
+        self::assertSame(0, $innerCalls);
+        self::assertSame([['id' => '1', 'score' => '12']], $this->visibleEffects());
+    }
+
+    public function testDisabledAutocommitIsRefusedWithoutChangingSessionState(): void
+    {
+        $this->primary->exec('SET autocommit = 0');
+        $calls = 0;
+        try {
+            $this->coordinate(function () use (&$calls): void { $calls++; });
+            self::fail('Disabled autocommit must be refused.');
+        } catch (UnsupportedCoordinationException $failure) {
+            self::assertSame(0, $calls);
+        }
+        $statement = $this->primary->query('SELECT @@autocommit');
+        self::assertNotFalse($statement);
+        self::assertSame('0', (string) $statement->fetchColumn());
+        self::assertSame([], $this->visibleEffects());
+    }
+
+    public function testANontransactionalParticipantIsRejectedBeforeAnyCallbackWrite(): void
+    {
+        $name = 'nomad_unsupported_' . bin2hex(random_bytes(6));
+        $this->observer->exec('CREATE TABLE `' . $name . '` (id INT PRIMARY KEY) ENGINE=MyISAM');
+        $this->ownedTables[] = $name;
+        $unsupported = new CoordinationTable($name, ['id']);
+        $calls = 0;
+        try {
+            $this->strategy->coordinate($this->parents, ['tenantId' => 1, 'id' => 7],
+                [$this->parents, $unsupported, $this->effects], function (DatabaseStrategy $backend) use (&$calls, $name): void {
+                    $calls++;
+                    $backend->query($backend->parse('INSERT INTO ?n VALUES (1)', $name));
+                });
+            self::fail('A nontransactional participant must be refused.');
+        } catch (UnsupportedCoordinationException $failure) {
+            self::assertSame(0, $calls);
+        }
+
+        $rows = $this->observer->query('SELECT * FROM `' . $name . '`');
+        self::assertNotFalse($rows);
+        self::assertSame([], $rows->fetchAll());
+        self::assertFalse($this->primary->inTransaction());
+        self::assertNotEmpty($this->logger->entries);
+    }
+
+    public function testATemporaryTableCannotMasqueradeAsItsEligiblePermanentNamesake(): void
+    {
+        $name = $this->effects->getName();
+        $this->primary->exec('CREATE TEMPORARY TABLE `' . $name . '` (id INT PRIMARY KEY, score INT) ENGINE=MyISAM');
+        $calls = 0;
+        try {
+            $this->coordinate(function (DatabaseStrategy $backend) use (&$calls, $name): void {
+                $calls++;
+                $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $name));
+            });
+            self::fail('Catalog metadata must not authorize a temporary-table shadow.');
+        } catch (UnsupportedCoordinationException $failure) {
+            self::assertSame(0, $calls);
+        }
+
+        $rows = $this->primary->query('SELECT * FROM `' . $name . '`');
+        self::assertNotFalse($rows);
+        self::assertSame([], $rows->fetchAll());
+        self::assertSame([], $this->visibleEffects());
+        self::assertFalse($this->primary->inTransaction());
+    }
+
+    public function testAnInaccurateIdentityDescriptorCannotAuthorizeAPartialPrimaryKey(): void
+    {
+        $inaccurate = new CoordinationTable($this->parents->getName(), ['id']);
+        $calls = 0;
+        try {
+            $this->strategy->coordinate($inaccurate, ['id' => 7], [$inaccurate, $this->effects],
+                function () use (&$calls): void { $calls++; });
+            self::fail('The identity must match the actual complete primary key.');
+        } catch (InvalidArgumentException $failure) {
+            self::assertSame(0, $calls);
+        }
+
+        self::assertSame([], $this->visibleEffects());
+        self::assertFalse($this->primary->inTransaction());
+    }
+
+    public function testTheCoordinationTableMustBeAmongTheParticipants(): void
+    {
+        $calls = 0;
+        try {
+            $this->strategy->coordinate($this->parents, ['tenantId' => 1, 'id' => 7], [$this->effects],
+                function () use (&$calls): void { $calls++; });
+            self::fail('The coordination table must participate.');
+        } catch (InvalidArgumentException $failure) {
+            self::assertSame(0, $calls);
+        }
+
+        self::assertSame([], $this->visibleEffects());
+        self::assertFalse($this->primary->inTransaction());
+    }
+
+    /**
+     * @dataProvider invalidParticipantShapes
+     * @param 'empty'|'named keys'|'sparse list'|'invalid first'|'invalid middle'|'invalid last'|'empty table name' $kind
+     */
+    public function testEveryParticipantIsValidatedBeforeTheCallback(string $kind): void
+    {
+        $participants = match ($kind) {
+            'empty' => [],
+            'named keys' => ['parent' => $this->parents, 'effects' => $this->effects],
+            'sparse list' => [0 => $this->parents, 2 => $this->effects],
+            'invalid first' => [new \stdClass(), $this->parents, $this->effects],
+            'invalid middle' => [$this->parents, new \stdClass(), $this->effects],
+            'invalid last' => [$this->parents, $this->effects, new \stdClass()],
+            'empty table name' => [$this->parents, new CoordinationTable('', ['id'])],
+        };
+        $calls = 0;
+        $caught = null;
+        try {
+            (new \ReflectionMethod($this->strategy, 'coordinate'))->invokeArgs($this->strategy, [
+                $this->parents, ['tenantId' => 1, 'id' => 7], $participants,
+                function () use (&$calls): void { $calls++; },
+            ]);
+        } catch (\Throwable $failure) {
+            $caught = $failure;
+        }
+        self::assertInstanceOf(InvalidArgumentException::class, $caught);
+        self::assertSame(0, $calls);
+        self::assertSame([], $this->visibleEffects());
+        self::assertFalse($this->primary->inTransaction());
+        self::assertNotEmpty($this->logger->entries);
+    }
+
+    public function testWarningModeIsRefusedWithoutReplacingTheHostConfiguration(): void
+    {
+        $this->primary->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_WARNING);
+        $calls = 0;
+        try {
+            $this->coordinate(function () use (&$calls): void { $calls++; });
+            self::fail('Warning mode cannot authorize the stronger capability.');
+        } catch (UnsupportedCoordinationException $failure) {
+            self::assertSame(0, $calls);
+        }
+
+        self::assertSame(PDO::ERRMODE_WARNING, $this->primary->getAttribute(PDO::ATTR_ERRMODE));
+        self::assertFalse($this->primary->inTransaction());
+        self::assertSame([], $this->visibleEffects());
+        self::assertNotEmpty($this->logger->entries);
+        self::assertSame(1, $this->strategy->query('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 12)'));
+        self::assertSame([['id' => '1', 'score' => '12']], $this->visibleEffects());
+    }
+
+    /** @dataProvider unsupportedIsolationLevels */
+    public function testUnsupportedIsolationRemainsUnchanged(string $isolation): void
+    {
+        $this->primary->exec('SET SESSION TRANSACTION ISOLATION LEVEL ' . $isolation);
+        $calls = 0;
+        try {
+            $this->coordinate(function () use (&$calls): void { $calls++; });
+            self::fail('Unsupported isolation cannot authorize a callback.');
+        } catch (UnsupportedCoordinationException $failure) {
+            self::assertSame(0, $calls);
+        }
+
+        $result = $this->primary->query('SELECT @@transaction_isolation');
+        self::assertNotFalse($result);
+        self::assertSame(str_replace(' ', '-', $isolation), $result->fetchColumn());
+        self::assertFalse($this->primary->inTransaction());
+        self::assertSame([], $this->visibleEffects());
+    }
+
+    public function testAViewCannotAuthorizeItsUnderlyingTables(): void
+    {
+        $name = 'nomad_view_' . bin2hex(random_bytes(6));
+        $this->observer->exec('CREATE VIEW `' . $name . '` AS SELECT * FROM `' . $this->effects->getName() . '`');
+        $this->ownedViews[] = $name;
+        $view = new CoordinationTable($name, ['id']);
+        $calls = 0;
+        try {
+            $this->strategy->coordinate($this->parents, ['tenantId' => 1, 'id' => 7], [$this->parents, $view],
+                function (DatabaseStrategy $backend) use (&$calls, $name): void {
+                    $calls++;
+                    $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $name));
+                });
+            self::fail('A view does not establish eligible participants.');
+        } catch (UnsupportedCoordinationException $failure) {
+            self::assertSame(0, $calls);
+        }
+
+        self::assertSame([], $this->visibleEffects());
+        self::assertFalse($this->primary->inTransaction());
+    }
+
+    public function testATriggerCannotWriteAnUndeclaredTable(): void
+    {
+        $hiddenName = 'nomad_hidden_' . bin2hex(random_bytes(6));
+        $this->createTable($hiddenName, '(id BIGINT PRIMARY KEY, score BIGINT NOT NULL)');
+        $this->observer->exec('CREATE TRIGGER `' . $hiddenName . '_trigger` AFTER INSERT ON `' .
+            $this->effects->getName() . '` FOR EACH ROW INSERT INTO `' . $hiddenName . '` VALUES (NEW.id, NEW.score)');
+        $calls = 0;
+        try {
+            $this->coordinate(function (DatabaseStrategy $backend) use (&$calls): void {
+                $calls++;
+                $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
+            });
+            self::fail('A trigger-bearing participant is unsupported.');
+        } catch (UnsupportedCoordinationException $failure) {
+            self::assertSame(0, $calls);
+        }
+
+        self::assertSame([], $this->visibleEffects());
+        $hidden = $this->observer->query('SELECT * FROM `' . $hiddenName . '`');
+        self::assertNotFalse($hidden);
+        self::assertSame([], $hidden->fetchAll());
+        self::assertFalse($this->primary->inTransaction());
+    }
+
+    /** @dataProvider cascadingForeignKeys */
+    public function testNativeCascadeEffectsShareTheOwnedTransaction(string $action, string $rule, bool $commit): void
+    {
+        $hiddenName = 'nomad_cascade_' . bin2hex(random_bytes(6));
+        $this->createTable($hiddenName, '(id BIGINT PRIMARY KEY, parentId BIGINT NULL, FOREIGN KEY (parentId) REFERENCES `' .
+            $this->effects->getName() . '` (id) ON ' . $action . ' ' . $rule . ')');
+        $this->observer->exec('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 12)');
+        $this->observer->exec('INSERT INTO `' . $hiddenName . '` VALUES (11, 1)');
+        $calls = 0;
+        $original = new RuntimeException('Roll back the complete native effect.');
+        $caught = null;
+        try {
+            $this->coordinate(function (DatabaseStrategy $backend) use (&$calls, $action, $commit, $original): void {
+                $calls++;
+                $sql = $action === 'DELETE' ? 'DELETE FROM ?n WHERE id = 1' : 'UPDATE ?n SET id = 2 WHERE id = 1';
+                $backend->query($backend->parse($sql, $this->effects->getName()));
+                self::assertSame([['id' => '1', 'score' => '12']], $this->visibleEffects());
+                if (!$commit) {
+                    throw $original;
+                }
+            });
+        } catch (RuntimeException $failure) {
+            $caught = $failure;
+        }
+        self::assertSame($commit ? null : $original, $caught);
+        self::assertSame(1, $calls);
+        $expectedParent = !$commit ? [['id' => '1', 'score' => '12']] : ($action === 'DELETE' ? [] : [['id' => '2', 'score' => '12']]);
+        self::assertSame($expectedParent, $this->visibleEffects());
+        $hidden = $this->observer->query('SELECT * FROM `' . $hiddenName . '`');
+        self::assertNotFalse($hidden);
+        $expectedChild = !$commit ? [['id' => '11', 'parentId' => '1']]
+            : ($rule === 'SET NULL' ? [['id' => '11', 'parentId' => null]]
+                : ($action === 'DELETE' ? [] : [['id' => '11', 'parentId' => '2']]));
+        self::assertSame($expectedChild, $hidden->fetchAll());
+        self::assertFalse($this->primary->inTransaction());
+        if ($commit) {
+            self::assertSame([], $this->logger->entries);
+        } else {
+            $this->assertFailureLog('callback', 'rolled_back', false, RuntimeException::class);
+        }
+    }
+
+    public function testLoggerFailureCannotReplaceTheConfirmedRollbackFailure(): void
+    {
+        $this->logger->throwOnWrite = true;
+        $original = new RuntimeException('private-callback-value');
+        $caught = null;
+        try {
+            $this->coordinate(function (DatabaseStrategy $backend) use ($original): void {
+                $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
+                throw $original;
+            });
+        } catch (RuntimeException $failure) {
+            $caught = $failure;
+        }
+
+        self::assertSame($original, $caught);
+        self::assertSame([], $this->visibleEffects());
+        self::assertFalse($this->primary->inTransaction());
+        $this->assertFailureLog('callback', 'rolled_back', false, RuntimeException::class);
+    }
+
+    /** @return array<string, array{string, string, bool}> */
+    public static function cascadingForeignKeys(): array
+    {
+        $cases = [];
+        foreach (['DELETE', 'UPDATE'] as $action) {
+            foreach (['CASCADE', 'SET NULL'] as $rule) {
+                foreach ([true, false] as $commit) {
+                    $cases[$action . ' ' . $rule . ($commit ? ' commit' : ' rollback')] = [$action, $rule, $commit];
+                }
+            }
+        }
+        return $cases;
+    }
+
+    /** @return array<string, array{string}> */
+    public static function unsupportedIsolationLevels(): array
+    {
+        return ['read uncommitted' => ['READ UNCOMMITTED'], 'serializable' => ['SERIALIZABLE']];
+    }
+
+    /** @return array<string, array{string}> */
+    public static function callbackFailures(): array
+    {
+        return ['exception' => ['exception'], 'error' => ['error']];
+    }
+
+    /** @return array<string, array{int|string}> */
+    public static function validIdentityValues(): array
+    {
+        return [
+            'integer zero' => [0], 'negative integer' => [-1], 'string zero' => ['0'],
+            'empty string' => [''], 'quoted binary text' => ["lead'\\\0x"], 'unicode' => ['référence'],
+        ];
+    }
+
+    /** @return array<string, array{string}> */
+    public static function invalidParticipantShapes(): array
+    {
+        return array_combine(
+            ['empty', 'named keys', 'sparse list', 'invalid first', 'invalid middle', 'invalid last', 'empty table name'],
+            array_map(static fn (string $kind): array => [$kind],
+                ['empty', 'named keys', 'sparse list', 'invalid first', 'invalid middle', 'invalid last', 'empty table name'])
+        );
+    }
+
+    /** @return array<string, array{int}> */
+    public static function driverModes(): array
+    {
+        return ['exception' => [PDO::ERRMODE_EXCEPTION], 'silent' => [PDO::ERRMODE_SILENT]];
+    }
+
+    /** @return array<string, array{bool}> */
+    public static function ambientOperations(): array
+    {
+        return ['empty transaction' => [false], 'existing writes' => [true]];
+    }
+
+    /** @return array<string, array{array<array-key, mixed>}> */
+    public static function invalidIdentities(): array
+    {
+        return [
+            'empty' => [[]], 'missing tenant' => [['id' => 7]],
+            'missing id' => [['tenantId' => 1]], 'extra field' => [['tenantId' => 1, 'id' => 7, 'other' => 9]],
+            'null value' => [['tenantId' => null, 'id' => 7]], 'boolean value' => [['tenantId' => true, 'id' => 7]],
+            'float value' => [['tenantId' => 1.5, 'id' => 7]], 'array value' => [['tenantId' => [1], 'id' => 7]],
+        ];
+    }
+
+}
