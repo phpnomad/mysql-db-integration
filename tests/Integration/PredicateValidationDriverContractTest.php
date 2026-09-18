@@ -106,19 +106,22 @@ final class PredicateValidationDriverContractTest extends TestCase
     /** @dataProvider rangeEntries */
     public function testBothRangeBoundsReachTheDatabaseOnEveryConditionEntry(string $entry, string $operator): void
     {
-        $this->withFixture(static function (): void {}, function (FormattingPdo $pdo, Container $container) use ($entry, $operator): void {
+        $this->withFixture(static function (FormattingPdo $pdo): void {
+            $pdo->exec("INSERT INTO nomad_bound_formatting VALUES (9, 10, 'outside')");
+        }, function (FormattingPdo $pdo, Container $container) use ($entry, $operator): void {
             $table = new FormattingTable();
             $clause = (clone $container->get(ClauseBuilder::class))->useTable($table);
             if ($entry !== 'where') {
                 $clause->where('score', '=', $entry === 'andWhere' ? 10 : 999);
             }
-            $clause->$entry('id', $operator, 7, 7);
+            $clause->$entry('id', $operator, 7, 8);
             $query = $container->get(QueryBuilder::class)->from($table)->select('*')->where($clause);
             $pdo->queryCalls = 0;
-            $expected = $this->originalRows()[$operator === 'between' ? 0 : 1];
-            self::assertSame([$expected], $container->get(QueryStrategy::class)->query($query));
+            $outside = ['id' => '9', 'score' => '10', 'label' => 'outside'];
+            $expected = $operator === 'between' ? $this->originalRows() : [$outside];
+            self::assertSame($expected, $container->get(QueryStrategy::class)->query($query));
             self::assertSame(1, $pdo->queryCalls);
-            self::assertSame($this->originalRows(), $this->rows($pdo));
+            self::assertSame([...$this->originalRows(), $outside], $this->rows($pdo));
         });
     }
 
