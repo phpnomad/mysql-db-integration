@@ -118,10 +118,13 @@ final class PredicateValidationContractTest extends BoundFormattingContractCase
         $prefix .= $fieldSql . ' ' . strtoupper($operator) . ' ';
         if ($values !== []) {
             $this->globalDatabase->expects(self::once())->method('parse')->willReturnCallback(
-                static function (string $sql, mixed ...$actualValues) use ($prefix, $values): string {
+                static function (string $sql, mixed ...$actualValues) use ($prefix, $values, $operator): string {
                     self::assertStringStartsWith($prefix, $sql);
                     self::assertNotSame('', trim(substr($sql, strlen($prefix))), 'A valued condition must retain its operand.');
                     self::assertSame($values, $actualValues);
+                    if (in_array(strtoupper($operator), ['BETWEEN', 'NOT BETWEEN'], true)) {
+                        self::assertSame(2, substr_count($sql, '?'), 'Both range bounds must reach the parser.');
+                    }
                     return 'VALID';
                 }
             );

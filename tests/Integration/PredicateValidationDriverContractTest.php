@@ -103,6 +103,25 @@ final class PredicateValidationDriverContractTest extends TestCase
         });
     }
 
+    /** @dataProvider rangeEntries */
+    public function testBothRangeBoundsReachTheDatabaseOnEveryConditionEntry(string $entry, string $operator): void
+    {
+        $this->withFixture(static function (): void {}, function (FormattingPdo $pdo, Container $container) use ($entry, $operator): void {
+            $table = new FormattingTable();
+            $clause = (clone $container->get(ClauseBuilder::class))->useTable($table);
+            if ($entry !== 'where') {
+                $clause->where('score', '=', $entry === 'andWhere' ? 10 : 999);
+            }
+            $clause->$entry('id', $operator, 7, 7);
+            $query = $container->get(QueryBuilder::class)->from($table)->select('*')->where($clause);
+            $pdo->queryCalls = 0;
+            $expected = $this->originalRows()[$operator === 'between' ? 0 : 1];
+            self::assertSame([$expected], $container->get(QueryStrategy::class)->query($query));
+            self::assertSame(1, $pdo->queryCalls);
+            self::assertSame($this->originalRows(), $this->rows($pdo));
+        });
+    }
+
     /**
      * @param array<string, int> $ids
      * @return array<array-key, mixed>|null
@@ -206,5 +225,17 @@ final class PredicateValidationDriverContractTest extends TestCase
     public static function validOperations(): array
     {
         return ['query' => ['query'], 'update' => ['update'], 'delete' => ['delete']];
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function rangeEntries(): array
+    {
+        $cases = [];
+        foreach (['where', 'andWhere', 'orWhere'] as $entry) {
+            foreach (['between', 'not between'] as $operator) {
+                $cases[$entry . ' ' . $operator] = [$entry, $operator];
+            }
+        }
+        return $cases;
     }
 }
