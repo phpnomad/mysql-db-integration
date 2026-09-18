@@ -10,6 +10,8 @@ use PDOStatement;
 final class QueryRecordingPdo extends PDO
 {
     public int $queryCalls = 0;
+    public int $execCalls = 0;
+    public int $prepareCalls = 0;
     public ?PDOException $lastQueryFailure = null;
     /** @var array<array-key, mixed> */
     public array $lastQueryErrorInfo = [];
@@ -33,5 +35,18 @@ final class QueryRecordingPdo extends PDO
             $this->lastQueryErrorInfo = $this->errorInfo();
             throw $failure;
         }
+    }
+
+    public function exec(string $statement): int|false
+    {
+        $this->execCalls++;
+        return parent::exec($statement);
+    }
+
+    /** @param array<array-key, mixed> $options */
+    public function prepare(string $query, array $options = []): PDOStatement|false
+    {
+        $this->prepareCalls++;
+        return parent::prepare($query, $options);
     }
 }

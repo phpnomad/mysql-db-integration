@@ -13,10 +13,25 @@ use PHPNomad\MySql\Integration\Tests\TestCase;
 /** Real driver contract. Full application binding proof is a separate gate. */
 final class PdoQueryFailureContractTest extends TestCase
 {
+    /** @var list<QueryRecordingPdo> */
+    private array $observedConnections = [];
+
     protected function setUp(): void
     {
         parent::setUp();
         $this->markTestIncomplete('PDO query failure implementation assignment is pending.');
+    }
+
+    protected function tearDown(): void
+    {
+        try {
+            foreach ($this->observedConnections as $pdo) {
+                self::assertSame(0, $pdo->execCalls, 'The strategy must not issue extra driver IO through exec.');
+                self::assertSame(0, $pdo->prepareCalls, 'The strategy must retain the existing query seam without prepared IO.');
+            }
+        } finally {
+            parent::tearDown();
+        }
     }
 
     /** @dataProvider driverModes */
@@ -25,6 +40,7 @@ final class PdoQueryFailureContractTest extends TestCase
         $pdo = $this->connection($mode);
         $pdo->exec('CREATE TEMPORARY TABLE nomad_failure_contract (id INT PRIMARY KEY, secret VARCHAR(100))');
         $pdo->exec("INSERT INTO nomad_failure_contract VALUES (1, 'first')");
+        $pdo->execCalls = 0;
         $strategy = new PdoDatabaseStrategy(PdoConnection::fromPdo($pdo));
 
         try {
@@ -188,7 +204,7 @@ final class PdoQueryFailureContractTest extends TestCase
         }
 
         try {
-            return new QueryRecordingPdo(
+            $pdo = new QueryRecordingPdo(
                 $dsn,
                 getenv('TEST_MYSQL_USER') ?: 'root',
                 getenv('TEST_MYSQL_PASS') ?: 'root',
@@ -199,6 +215,8 @@ final class PdoQueryFailureContractTest extends TestCase
                     PDO::ATTR_PERSISTENT => false,
                 ]
             );
+            $this->observedConnections[] = $pdo;
+            return $pdo;
         } catch (PDOException $failure) {
             $this->markTestSkipped('The explicitly configured coordination test database is unavailable.');
         }

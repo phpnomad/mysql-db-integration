@@ -16,6 +16,8 @@ and diagnostic text in errorInfo. For a caught driver exception, preserve that
 original exception. For a false return, construct a driver exception carrying
 the reported error information. Do not include SQL or driver details in the
 public message. Do not change the connection's error mode or retry a query.
+Retain the existing PDO::query execution seam, including overrides on an
+injected PDO instance. Do not add alternate exec or prepared-statement IO.
 
 Warning mode remains available to ordinary query callers. It retains the host's
 PHP warning behavior, including any driver diagnostics that handler receives.
@@ -43,7 +45,9 @@ identifier, successful writes and reads, empty results, and zero affected rows.
 A recording PDO subclass forwards every query to the real driver and captures
 its actual exception and attempt count. The tests therefore prove original
 cause identity, unchanged driver details, and no query retry at the driver
-boundary. The recording subclass never returns fake database results.
+boundary. It also observes exec and prepare calls so a replay cannot escape
+observation through another driver method. The recording subclass never returns
+fake database results.
 The warning-mode test installs a recording host handler and restores it in a
 finally block. It must observe the actual warning, not merely prove that the
 strategy constructed a safe exception after diagnostics had escaped elsewhere.
