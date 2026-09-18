@@ -168,6 +168,17 @@ final class PdoCoordinationVisibilityContractTest extends OwnedPdoCoordinationCo
         if ($coverage === 'global all') {
             $this->observer->exec('GRANT ALL PRIVILEGES ON *.* TO ' . $account);
         }
+        if ($coverage === 'schema wildcard') {
+            $pattern = str_replace('`', '``', $schema . '%');
+            $this->observer->exec('GRANT TRIGGER ON `' . $pattern . '`.* TO ' . $account);
+        }
+        if ($coverage === 'escaped schema pattern') {
+            $pattern = str_replace(['_', '%'], ['\\_', '\\%'], $schema);
+            if ($pattern === $schema) {
+                $pattern .= '\\%';
+            }
+            $this->observer->exec('GRANT TRIGGER ON `' . str_replace('`', '``', $pattern) . '`.* TO ' . $account);
+        }
         if ($coverage === 'table all') {
             foreach ([$this->parents->getName(), $this->effects->getName()] as $table) {
                 $this->observer->exec('GRANT ALL PRIVILEGES ON ' . $database . '.`' . $table . '` TO ' . $account);
@@ -215,7 +226,10 @@ final class PdoCoordinationVisibilityContractTest extends OwnedPdoCoordinationCo
     /** @return array<string, array{string}> */
     public static function insufficientVisibility(): array
     {
-        return ['none' => ['none'], 'parent only' => ['parent only'], 'effect only' => ['effect only'], 'role only' => ['role only']];
+        return [
+            'none' => ['none'], 'parent only' => ['parent only'], 'effect only' => ['effect only'], 'role only' => ['role only'],
+            'schema wildcard' => ['schema wildcard'], 'escaped schema pattern' => ['escaped schema pattern'],
+        ];
     }
 
     /** @return array<string, array{string}> */
