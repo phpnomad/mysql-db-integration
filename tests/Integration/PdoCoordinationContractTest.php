@@ -520,6 +520,84 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         $this->assertFailureLog('callback', 'rolled_back', false, RuntimeException::class);
     }
 
+    /**
+     * @dataProvider participantEligibilityHazards
+     * @param 0|1|2 $position
+     * @param 'engine'|'trigger'|'view'|'temporary' $hazard
+     */
+    public function testEveryParticipantMustPassEveryStorageEligibilityGuard(int $position, string $hazard): void
+    {
+        $extraName = 'nomad_extra_' . bin2hex(random_bytes(6));
+        $this->createTable($extraName, '(id BIGINT PRIMARY KEY, score BIGINT NOT NULL)');
+        $participants = [$this->parents, $this->effects, new CoordinationTable($extraName, ['id'])];
+        $target = $participants[$position];
+        $targetName = $target->getName();
+        $hiddenName = null;
+        if ($hazard === 'engine') {
+            $this->observer->exec('ALTER TABLE `' . $targetName . '` ENGINE=MyISAM');
+        } elseif ($hazard === 'trigger') {
+            $hiddenName = 'nomad_hidden_' . bin2hex(random_bytes(6));
+            $this->observer->exec('CREATE TABLE `' . $hiddenName . '` (id BIGINT PRIMARY KEY, score BIGINT) ENGINE=MyISAM');
+            $this->ownedTables[] = $hiddenName;
+            $this->observer->exec('CREATE TRIGGER `' . $hiddenName . '_trigger` AFTER INSERT ON `' . $targetName .
+                '` FOR EACH ROW INSERT INTO `' . $hiddenName . '` VALUES (NEW.id, 99)');
+        } elseif ($hazard === 'view') {
+            $viewName = 'nomad_view_' . bin2hex(random_bytes(6));
+            $this->observer->exec('CREATE VIEW `' . $viewName . '` AS SELECT * FROM `' . $targetName . '`');
+            $this->ownedViews[] = $viewName;
+            $participants[$position] = new CoordinationTable($viewName, $position === 0 ? ['tenantId', 'id'] : ['id']);
+            $targetName = $viewName;
+        } else {
+            $columns = $position === 0
+                ? '(tenantId BIGINT NOT NULL, id BIGINT NOT NULL, PRIMARY KEY (tenantId, id))'
+                : '(id BIGINT PRIMARY KEY, score BIGINT NOT NULL)';
+            $this->primary->exec('CREATE TEMPORARY TABLE `' . $targetName . '` ' . $columns . ' ENGINE=MyISAM');
+            if ($position === 0) {
+                $this->primary->exec('INSERT INTO `' . $targetName . '` VALUES (1, 7)');
+            }
+        }
+        $calls = 0;
+        try {
+            $this->strategy->coordinate($participants[0], ['tenantId' => 1, 'id' => 7], $participants,
+                function (DatabaseStrategy $backend) use (&$calls, $targetName): void {
+                    $calls++;
+                    $backend->query($backend->parse('INSERT INTO ?n VALUES (3, 8)', $targetName));
+                });
+            self::fail('Every declared participant must pass storage eligibility before any callback.');
+        } catch (UnsupportedCoordinationException $failure) {
+            self::assertSame(0, $calls);
+        }
+
+        $reader = $hazard === 'temporary' ? $this->primary : $this->observer;
+        $rows = $reader->query('SELECT * FROM `' . $targetName . '` ORDER BY ' . ($position === 0 ? 'tenantId, id' : 'id'));
+        self::assertNotFalse($rows);
+        $expected = $position !== 0 ? [] : ($hazard === 'temporary'
+            ? [['tenantId' => '1', 'id' => '7']]
+            : [['tenantId' => '1', 'id' => '7'], ['tenantId' => '2', 'id' => '7']]);
+        self::assertSame($expected, $rows->fetchAll());
+        if ($hiddenName !== null) {
+            $hiddenRows = $this->observer->query('SELECT * FROM `' . $hiddenName . '`');
+            self::assertNotFalse($hiddenRows);
+            self::assertSame([], $hiddenRows->fetchAll());
+        }
+        self::assertSame([], $this->visibleEffects());
+        self::assertFalse($this->primary->inTransaction());
+        $this->assertFailureLog('coordination', 'rolled_back', false, UnsupportedCoordinationException::class,
+            null, null, array_map(static fn (CoordinationTable $table): string => $table->getName(), $participants));
+    }
+
+    /** @return array<string, array{0|1|2, 'engine'|'trigger'|'view'|'temporary'}> */
+    public static function participantEligibilityHazards(): array
+    {
+        $cases = [];
+        foreach ([0, 1, 2] as $position) {
+            foreach (['engine', 'trigger', 'view', 'temporary'] as $hazard) {
+                $cases[$position . ' ' . $hazard] = [$position, $hazard];
+            }
+        }
+        return $cases;
+    }
+
     /** @return array<string, array{string, string, bool}> */
     public static function cascadingForeignKeys(): array
     {
