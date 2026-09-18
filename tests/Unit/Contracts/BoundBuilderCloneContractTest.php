@@ -73,7 +73,10 @@ final class BoundBuilderCloneContractTest extends BoundFormattingContractCase
         );
         $copy = null;
         $capture = static function (CloneProbeClauseBuilder|CloneProbeQueryBuilder $subject) use (
-            &$copy, $cloneBackend, $prepare, $table
+            &$copy,
+            $cloneBackend,
+            $prepare,
+            $table
         ): void {
             $copy = clone $subject;
             self::assertNotSame($subject, $copy);
@@ -88,7 +91,10 @@ final class BoundBuilderCloneContractTest extends BoundFormattingContractCase
             self::assertSame('GLOBAL', $copy->build());
         };
         $builder->beforeBuild = static function (CloneProbeClauseBuilder|CloneProbeQueryBuilder $subject) use (
-            $nested, $capture, $inner, $prepare
+            $nested,
+            $capture,
+            $inner,
+            $prepare
         ): void {
             if ($nested) {
                 $subject->beforeBuild = $capture;
