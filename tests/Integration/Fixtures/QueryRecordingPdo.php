@@ -13,10 +13,17 @@ final class QueryRecordingPdo extends PDO
     public ?PDOException $lastQueryFailure = null;
     /** @var array<array-key, mixed> */
     public array $lastQueryErrorInfo = [];
+    /** @var list<mixed> */
+    public array $queryModes = [];
+    public mixed $handlerAtLastQuery = null;
 
     public function query(string $query, ?int $fetchMode = null, mixed ...$fetchModeArgs): PDOStatement|false
     {
         $this->queryCalls++;
+        $this->queryModes[] = $this->getAttribute(PDO::ATTR_ERRMODE);
+        // PHP has no read-only getter. Restore the slot before driver IO.
+        $this->handlerAtLastQuery = set_error_handler(static fn (): bool => false);
+        restore_error_handler();
         try {
             $statement = parent::query($query, $fetchMode, ...$fetchModeArgs);
             $this->lastQueryErrorInfo = $this->errorInfo();

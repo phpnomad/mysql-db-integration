@@ -47,6 +47,8 @@ final class PdoQueryFailureContractTest extends TestCase
 
         self::assertSame(1, $pdo->queryCalls);
         self::assertSame([['id' => '1', 'secret' => 'first']], $strategy->query('SELECT * FROM nomad_failure_contract'));
+        self::assertSame(2, $pdo->queryCalls);
+        self::assertSame([$mode, $mode], $pdo->queryModes);
         self::assertSame($mode, $pdo->getAttribute(PDO::ATTR_ERRMODE));
     }
 
@@ -61,6 +63,7 @@ final class PdoQueryFailureContractTest extends TestCase
             self::fail('The invalid SQL must fail.');
         } catch (DatastoreErrorException $failure) {
             self::assertSame('Failed to execute query.', $failure->getMessage());
+            self::assertSame(500, $failure->getCode());
             $cause = $failure->getPrevious();
             self::assertInstanceOf(PDOException::class, $cause);
             self::assertIsArray($cause->errorInfo);
@@ -74,6 +77,7 @@ final class PdoQueryFailureContractTest extends TestCase
         }
 
         self::assertSame(1, $pdo->queryCalls);
+        self::assertSame([$mode], $pdo->queryModes);
         self::assertSame($mode, $pdo->getAttribute(PDO::ATTR_ERRMODE));
     }
 
@@ -82,13 +86,20 @@ final class PdoQueryFailureContractTest extends TestCase
     {
         $pdo = $this->connection($mode);
         $strategy = new PdoDatabaseStrategy(PdoConnection::fromPdo($pdo));
-        $strategy->query('CREATE TEMPORARY TABLE nomad_success_contract (id INT PRIMARY KEY, score INT)');
+        self::assertSame(0, $strategy->query('CREATE TEMPORARY TABLE nomad_success_contract (id INT PRIMARY KEY, score INT)'));
+        self::assertSame(1, $pdo->queryCalls);
 
         self::assertSame(1, $strategy->query('INSERT INTO nomad_success_contract VALUES (1, 10)'));
+        self::assertSame(2, $pdo->queryCalls);
         self::assertSame(0, $strategy->query('UPDATE nomad_success_contract SET score = 10 WHERE id = 1'));
+        self::assertSame(3, $pdo->queryCalls);
         self::assertSame(0, $strategy->query('DELETE FROM nomad_success_contract WHERE id = 2'));
+        self::assertSame(4, $pdo->queryCalls);
         self::assertSame([['id' => '1', 'score' => '10']], $strategy->query('SELECT * FROM nomad_success_contract'));
+        self::assertSame(5, $pdo->queryCalls);
         self::assertSame([], $strategy->query('SELECT * FROM nomad_success_contract WHERE id = 2'));
+        self::assertSame(6, $pdo->queryCalls);
+        self::assertSame(array_fill(0, 6, $mode), $pdo->queryModes);
         self::assertSame($mode, $pdo->getAttribute(PDO::ATTR_ERRMODE));
     }
 
@@ -103,10 +114,11 @@ final class PdoQueryFailureContractTest extends TestCase
         $pdo = $this->connection(PDO::ERRMODE_WARNING);
         $strategy = new PdoDatabaseStrategy(PdoConnection::fromPdo($pdo));
         $warnings = [];
-        set_error_handler(static function (int $severity, string $message) use (&$warnings): bool {
+        $hostHandler = static function (int $severity, string $message) use (&$warnings): bool {
             $warnings[] = [$severity, $message];
             return true;
-        });
+        };
+        set_error_handler($hostHandler);
         try {
             try {
                 $strategy->query('sensitive_contract_identifier SELECT');
@@ -127,8 +139,12 @@ final class PdoQueryFailureContractTest extends TestCase
         self::assertSame(E_WARNING, $warnings[0][0]);
         self::assertStringContainsString('sensitive_contract_identifier', $warnings[0][1]);
         self::assertSame(1, $pdo->queryCalls);
+        self::assertSame($hostHandler, $pdo->handlerAtLastQuery);
+        self::assertSame([PDO::ERRMODE_WARNING], $pdo->queryModes);
         self::assertSame(PDO::ERRMODE_WARNING, $pdo->getAttribute(PDO::ATTR_ERRMODE));
         self::assertSame([['value' => '1']], $strategy->query('SELECT 1 AS value'));
+        self::assertSame(2, $pdo->queryCalls);
+        self::assertSame([PDO::ERRMODE_WARNING, PDO::ERRMODE_WARNING], $pdo->queryModes);
     }
 
     public function testWarningModeRetainsAHostHandlerThatThrows(): void
@@ -137,9 +153,10 @@ final class PdoQueryFailureContractTest extends TestCase
         $strategy = new PdoDatabaseStrategy(PdoConnection::fromPdo($pdo));
         $hostFailure = new \ErrorException('Host warning handler sentinel');
         $caught = null;
-        set_error_handler(static function () use ($hostFailure): never {
+        $hostHandler = static function () use ($hostFailure): void {
             throw $hostFailure;
-        });
+        };
+        set_error_handler($hostHandler);
         try {
             try {
                 $this->queryThroughThrowingHostHandler($strategy);
@@ -152,6 +169,8 @@ final class PdoQueryFailureContractTest extends TestCase
 
         self::assertSame($hostFailure, $caught);
         self::assertSame(1, $pdo->queryCalls);
+        self::assertSame($hostHandler, $pdo->handlerAtLastQuery);
+        self::assertSame([PDO::ERRMODE_WARNING], $pdo->queryModes);
         self::assertSame(PDO::ERRMODE_WARNING, $pdo->getAttribute(PDO::ATTR_ERRMODE));
     }
 
