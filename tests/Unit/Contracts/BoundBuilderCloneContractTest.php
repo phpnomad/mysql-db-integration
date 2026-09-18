@@ -8,6 +8,7 @@ use PHPNomad\MySql\Integration\Builders\MySqlClauseBuilder;
 use PHPNomad\MySql\Integration\Builders\QueryBuilder;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\MySql\Integration\Tests\Unit\Fixtures\BoundFormattingContractCase;
+use PHPUnit\Framework\AssertionFailedError;
 use RuntimeException;
 use Throwable;
 
@@ -113,6 +114,8 @@ final class BoundBuilderCloneContractTest extends BoundFormattingContractCase
         $result = null;
         try {
             $result = $builder->buildWithDatabaseStrategy($outer);
+        } catch (AssertionFailedError $assertion) {
+            throw $assertion;
         } catch (Throwable $actual) {
             $caught = $actual;
         }
