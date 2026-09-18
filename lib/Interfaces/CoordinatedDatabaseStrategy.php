@@ -25,6 +25,7 @@ interface CoordinatedDatabaseStrategy extends DatabaseStrategy
      * @throws \PHPNomad\Database\Exceptions\UnsupportedCoordinationException
      * @throws \PHPNomad\Database\Exceptions\CoordinatedOperationConflictException Retry-eligible only after whole-attempt rollback.
      * @throws \PHPNomad\Database\Exceptions\CoordinatedOperationOutcomeUnknownException Uncertain outcome, not automatically retryable.
+     * @throws \PHPNomad\Database\Exceptions\CoordinatedOperationCleanupFailedException Unconfirmed rollback after an earlier failure, retaining both original causes.
      * @throws \PHPNomad\Datastore\Exceptions\RecordNotFoundException
      * @throws \PHPNomad\Datastore\Exceptions\DatastoreErrorException Ordinary query failure, or failed commit followed by confirmed rollback.
      * @throws \Throwable Original callback failure after confirmed rollback.
