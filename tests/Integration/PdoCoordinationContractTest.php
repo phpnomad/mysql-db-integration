@@ -36,6 +36,55 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         self::assertSame([], $this->logger->entries);
     }
 
+    /** @dataProvider supportedIsolationOutcomes */
+    public function testSupportedIsolationRemainsSelectedInsideAndAfterTheOperation(string $isolation, bool $fail): void
+    {
+        $this->primary->exec('SET SESSION TRANSACTION ISOLATION LEVEL ' . $isolation);
+        $expected = str_replace(' ', '-', $isolation);
+        $original = new RuntimeException('Rollback isolation probe');
+        $calls = 0;
+        $caught = null;
+        try {
+            $result = $this->coordinate(function (DatabaseStrategy $backend) use (&$calls, $expected, $fail, $original): string {
+                $calls++;
+                $setting = $this->primary->query('SELECT @@SESSION.transaction_isolation');
+                self::assertNotFalse($setting);
+                self::assertSame($expected, $setting->fetchColumn(), 'The callback must retain the selected isolation.');
+                $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
+                if ($fail) {
+                    throw $original;
+                }
+                return 'committed';
+            });
+            self::assertSame('committed', $result);
+        } catch (RuntimeException $failure) {
+            $caught = $failure;
+        }
+        self::assertSame($fail ? $original : null, $caught);
+        self::assertSame(1, $calls);
+        self::assertFalse($this->primary->inTransaction());
+        $setting = $this->primary->query('SELECT @@SESSION.transaction_isolation');
+        self::assertNotFalse($setting);
+        self::assertSame($expected, $setting->fetchColumn(), 'Cleanup must retain the selected isolation.');
+        self::assertSame($fail ? [] : [['id' => '1', 'score' => '12']], $this->visibleEffects());
+        if ($fail) {
+            $this->assertFailureLog('callback', 'rolled_back', false, RuntimeException::class);
+        } else {
+            self::assertSame([], $this->logger->entries);
+        }
+    }
+
+    /** @return array<string, array{string, bool}> */
+    public static function supportedIsolationOutcomes(): array
+    {
+        return [
+            'read committed success' => ['READ COMMITTED', false],
+            'read committed failure' => ['READ COMMITTED', true],
+            'repeatable read success' => ['REPEATABLE READ', false],
+            'repeatable read failure' => ['REPEATABLE READ', true],
+        ];
+    }
+
     /**
      * @dataProvider validIdentityValues
      * @param int|string $value
