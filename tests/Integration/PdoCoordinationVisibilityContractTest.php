@@ -16,17 +16,22 @@ final class PdoCoordinationVisibilityContractTest extends OwnedPdoCoordinationCo
 
     protected function tearDown(): void
     {
+        if (!isset($this->observer)) {
+            parent::tearDown();
+            return;
+        }
+        $observer = $this->observer;
         try {
-            if ($this->previousPartialRevokes !== null) {
-                $this->observer->exec('SET GLOBAL partial_revokes = ' . $this->previousPartialRevokes);
-            }
+            parent::tearDown();
         } finally {
             try {
-                if ($this->otherOwnedSchema !== null) {
-                    $this->observer->exec('DROP DATABASE `' . $this->otherOwnedSchema . '`');
+                if ($this->previousPartialRevokes !== null) {
+                    $observer->exec('SET GLOBAL partial_revokes = ' . $this->previousPartialRevokes);
                 }
             } finally {
-                parent::tearDown();
+                if ($this->otherOwnedSchema !== null) {
+                    $observer->exec('DROP DATABASE `' . $this->otherOwnedSchema . '`');
+                }
             }
         }
     }
