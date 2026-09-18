@@ -3,8 +3,10 @@
 namespace PHPNomad\MySql\Integration\Tests\Integration;
 
 use PDOException;
+use PHPNomad\Database\Exceptions\CoordinatedOperationCleanupFailedException;
 use PHPNomad\Database\Exceptions\CoordinatedOperationOutcomeUnknownException;
 use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
+use PHPNomad\Datastore\Exceptions\RecordNotFoundException;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\OutcomeFaultPdo;
 use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\OwnedPdoCoordinationContractCase;
@@ -52,13 +54,14 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
     }
 
     /** @dataProvider rollbackFaults */
-    public function testRollbackFailureNeverMasqueradesAsTheOriginalCallbackFailure(bool $afterRollback, bool $throws): void
+    public function testRollbackFailureNeverMasqueradesAsTheOriginalCallbackFailure(bool $afterRollback, bool $throws, bool $loggerFails): void
     {
         $pdo = $this->connect(OutcomeFaultPdo::class);
         $pdo->faultAt = 'rollback';
         $pdo->afterOperation = $afterRollback;
         $pdo->throwFault = $throws;
         $this->usePrimary($pdo);
+        $this->logger->throwOnWrite = $loggerFails;
         $original = new RuntimeException('Original callback failure');
         $calls = 0;
         /** @var callable(DatabaseStrategy): void $operation */
@@ -71,7 +74,8 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
             try {
                 $this->coordinate($operation);
                 self::fail('An unconfirmed rollback must report an unknown outcome.');
-            } catch (CoordinatedOperationOutcomeUnknownException $failure) {
+            } catch (CoordinatedOperationCleanupFailedException $failure) {
+                self::assertSame($original, $failure->getOperationFailure());
                 $cause = $failure->getPrevious();
                 self::assertInstanceOf(PDOException::class, $cause);
                 self::assertSame(['HY000', 2013, 'Connection acknowledgement fault'], $cause->errorInfo);
@@ -85,7 +89,9 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
             self::assertSame(1, $pdo->rollbackCalls);
             self::assertSame(!$afterRollback, $pdo->inTransaction());
             self::assertSame([], $this->visibleEffects());
-            $this->assertFailureLog('rollback', 'unknown', false, PDOException::class, 'HY000', 2013);
+            $this->assertFailureLog('rollback', 'unknown', false, PDOException::class, 'HY000', 2013, priorFailure: [
+                'phase' => 'callback', 'causeClass' => RuntimeException::class, 'sqlState' => null, 'driverCode' => null,
+            ]);
         } finally {
             $pdo->faultAt = null;
         }
@@ -123,7 +129,8 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
     public function testFailedCommitFollowedByUnconfirmedRollbackHasAnUnknownOutcome(
         bool $commitThrows,
         bool $rollbackThrows,
-        bool $afterRollback
+        bool $afterRollback,
+        bool $loggerFails
     ): void {
         $pdo = $this->connect(OutcomeFaultPdo::class);
         $pdo->faultAt = 'commit';
@@ -131,6 +138,7 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
         $pdo->rollbackThrowsAfterCommitFault = $rollbackThrows;
         $pdo->rollbackAfterOperationAfterCommitFault = $afterRollback;
         $this->usePrimary($pdo);
+        $this->logger->throwOnWrite = $loggerFails;
         $calls = 0;
         try {
             try {
@@ -140,7 +148,13 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
                     return 'must not report success';
                 });
                 self::fail('An unconfirmed cleanup rollback leaves the commit outcome unknown.');
-            } catch (CoordinatedOperationOutcomeUnknownException $failure) {
+            } catch (CoordinatedOperationCleanupFailedException $failure) {
+                $operationCause = $failure->getOperationFailure();
+                self::assertInstanceOf(PDOException::class, $operationCause);
+                self::assertSame(['HY000', 2013, 'Connection acknowledgement fault'], $operationCause->errorInfo);
+                if ($commitThrows) {
+                    self::assertSame($pdo->commitFaultCause, $operationCause);
+                }
                 $cause = $failure->getPrevious();
                 self::assertInstanceOf(PDOException::class, $cause);
                 self::assertSame(['HY000', 2006, 'Rollback acknowledgement fault'], $cause->errorInfo);
@@ -153,13 +167,53 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
             self::assertSame(1, $pdo->rollbackCalls);
             self::assertSame(!$afterRollback, $pdo->inTransaction());
             self::assertSame([], $this->visibleEffects());
-            $this->assertFailureLog('rollback', 'unknown', false, PDOException::class, 'HY000', 2006);
+            $this->assertFailureLog('rollback', 'unknown', false, PDOException::class, 'HY000', 2006, priorFailure: [
+                'phase' => 'commit', 'causeClass' => PDOException::class, 'sqlState' => 'HY000', 'driverCode' => 2013,
+            ]);
         } finally {
             $pdo->faultAt = null;
         }
     }
 
-    /** @return array<string, array{bool, bool, bool}> */
+    /** @dataProvider rollbackFaults */
+    public function testCoordinationFailureRemainsInspectableWhenCleanupAlsoFails(bool $afterRollback, bool $throws, bool $loggerFails): void
+    {
+        $pdo = $this->connect(OutcomeFaultPdo::class);
+        $pdo->faultAt = 'rollback';
+        $pdo->afterOperation = $afterRollback;
+        $pdo->throwFault = $throws;
+        $this->usePrimary($pdo);
+        $this->logger->throwOnWrite = $loggerFails;
+        $calls = 0;
+        try {
+            try {
+                $this->strategy->coordinate($this->parents, ['tenantId' => 1, 'id' => 999], [$this->parents, $this->effects],
+                    function () use (&$calls): void { $calls++; }
+                );
+                self::fail('Missing coordination state with unconfirmed cleanup is an unknown outcome.');
+            } catch (CoordinatedOperationCleanupFailedException $failure) {
+                self::assertInstanceOf(RecordNotFoundException::class, $failure->getOperationFailure());
+                $cleanup = $failure->getPrevious();
+                self::assertInstanceOf(PDOException::class, $cleanup);
+                self::assertSame(['HY000', 2013, 'Connection acknowledgement fault'], $cleanup->errorInfo);
+                if ($throws) {
+                    self::assertSame($pdo->faultCause, $cleanup);
+                }
+            }
+            self::assertSame(0, $calls);
+            self::assertSame(0, $pdo->commitCalls);
+            self::assertSame(1, $pdo->rollbackCalls);
+            self::assertSame(!$afterRollback, $pdo->inTransaction());
+            self::assertSame([], $this->visibleEffects());
+            $this->assertFailureLog('rollback', 'unknown', false, PDOException::class, 'HY000', 2013, priorFailure: [
+                'phase' => 'coordination', 'causeClass' => RecordNotFoundException::class, 'sqlState' => null, 'driverCode' => null,
+            ]);
+        } finally {
+            $pdo->faultAt = null;
+        }
+    }
+
+    /** @return array<string, array{bool, bool, bool, bool}> */
     public static function combinedAcknowledgementFaults(): array
     {
         $cases = [];
@@ -168,7 +222,8 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
                 foreach ([false, true] as $afterRollback) {
                     $name = 'commit ' . ($commitThrows ? 'throw' : 'false') . ', rollback ' .
                         ($rollbackThrows ? 'throw' : 'false') . ($afterRollback ? ' after' : ' before');
-                    $cases[$name] = [$commitThrows, $rollbackThrows, $afterRollback];
+                    $cases[$name] = [$commitThrows, $rollbackThrows, $afterRollback, false];
+                    $cases[$name . ' logger failure'] = [$commitThrows, $rollbackThrows, $afterRollback, true];
                 }
             }
         }
@@ -190,12 +245,14 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
         ];
     }
 
-    /** @return array<string, array{bool, bool}> */
+    /** @return array<string, array{bool, bool, bool}> */
     public static function rollbackFaults(): array
     {
         return [
-            'throw before rollback' => [false, true], 'false before rollback' => [false, false],
-            'throw after rollback' => [true, true], 'false after rollback' => [true, false],
+            'throw before rollback' => [false, true, false], 'false before rollback' => [false, false, false],
+            'throw after rollback' => [true, true, false], 'false after rollback' => [true, false, false],
+            'throw before rollback, logger failure' => [false, true, true], 'false before rollback, logger failure' => [false, false, true],
+            'throw after rollback, logger failure' => [true, true, true], 'false after rollback, logger failure' => [true, false, true],
         ];
     }
 }

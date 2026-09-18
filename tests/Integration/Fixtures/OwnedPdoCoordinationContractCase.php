@@ -94,7 +94,10 @@ abstract class OwnedPdoCoordinationContractCase extends TestCase
         $this->ownedTables[] = $name;
     }
 
-    /** @param list<string>|null $tables */
+    /**
+     * @param list<string>|null $tables
+     * @param array{phase:string, causeClass:class-string, sqlState:?string, driverCode:?int}|null $priorFailure
+     */
     protected function assertFailureLog(
         string $phase,
         string $outcome,
@@ -102,7 +105,8 @@ abstract class OwnedPdoCoordinationContractCase extends TestCase
         string $causeClass,
         ?string $sqlState = null,
         ?int $driverCode = null,
-        ?array $tables = null
+        ?array $tables = null,
+        ?array $priorFailure = null
     ): void {
         $expected = [[
             'level' => 'error',
@@ -117,8 +121,15 @@ abstract class OwnedPdoCoordinationContractCase extends TestCase
                 'driverCode' => $driverCode,
             ],
         ]];
+        if ($priorFailure !== null) {
+            ksort($priorFailure);
+            $expected[0]['context']['priorFailure'] = $priorFailure;
+        }
         self::assertCount(1, $this->logger->entries);
         $actual = $this->logger->entries;
+        if (isset($actual[0]['context']['priorFailure']) && is_array($actual[0]['context']['priorFailure'])) {
+            ksort($actual[0]['context']['priorFailure']);
+        }
         ksort($expected[0]['context']);
         ksort($actual[0]['context']);
         self::assertSame($expected, $actual);

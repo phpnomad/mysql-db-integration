@@ -14,6 +14,7 @@ final class OutcomeFaultPdo extends PDO
     public ?bool $rollbackThrowsAfterCommitFault = null;
     public bool $rollbackAfterOperationAfterCommitFault = false;
     public ?PDOException $faultCause = null;
+    public ?PDOException $commitFaultCause = null;
     public int $commitCalls = 0;
     public int $rollbackCalls = 0;
     /** @var array{string, int, string}|null */
@@ -28,7 +29,11 @@ final class OutcomeFaultPdo extends PDO
         if ($this->afterOperation) {
             parent::commit();
         }
-        return $this->failAcknowledgement();
+        try {
+            return $this->failAcknowledgement();
+        } finally {
+            $this->commitFaultCause = $this->faultCause;
+        }
     }
 
     public function rollBack(): bool

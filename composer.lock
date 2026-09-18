@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "c885a7fb656a997ef4e43cc43a9dcc8c",
+    "content-hash": "d72b7b24a0861d04154cc9a30be70a57",
     "packages": [
         {
             "name": "phpnomad/cache",
@@ -93,11 +93,11 @@
         },
         {
             "name": "phpnomad/db",
-            "version": "dev-codex/coordinated-database-contracts-v2",
+            "version": "dev-codex/cleanup-outcome-contract-v2",
             "source": {
                 "type": "git",
                 "url": "git@github.com:phpnomad/db.git",
-                "reference": "bc502c5633893dcaff8420132f876863d14f4457"
+                "reference": "aa1368f270f242b9898ef127e5a8db784c28ee65"
             },
             "require": {
                 "phpnomad/cache": "^1.0",
@@ -135,7 +135,7 @@
                 }
             ],
             "homepage": "https://github.com/phpnomad/core",
-            "time": "2026-09-17T22:52:37+00:00"
+            "time": "2026-09-18T11:14:23+00:00"
         },
         {
             "name": "phpnomad/di",
@@ -5364,7 +5364,7 @@
     "aliases": [
         {
             "package": "phpnomad/db",
-            "version": "dev-codex/coordinated-database-contracts-v2",
+            "version": "dev-codex/cleanup-outcome-contract-v2",
             "alias": "2.2.x-dev",
             "alias_normalized": "2.2.9999999.9999999-dev"
         }
