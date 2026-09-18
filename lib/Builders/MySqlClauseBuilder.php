@@ -5,9 +5,11 @@ namespace PHPNomad\MySql\Integration\Builders;
 use PHPNomad\Database\Interfaces\ClauseBuilder;
 use PHPNomad\Database\Traits\WithPrependedFields;
 use PHPNomad\MySql\Integration\Facades\Database;
+use PHPNomad\MySql\Integration\Interfaces\CanBuildWithDatabaseStrategy;
+use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\Utils\Helpers\Arr;
 
-class MySqlClauseBuilder implements ClauseBuilder
+class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
 {
     use WithPrependedFields;
 
@@ -16,6 +18,12 @@ class MySqlClauseBuilder implements ClauseBuilder
     protected array $validOperators = ["=", "<", ">", "<=", ">=", "<>", "!=",
         "LIKE", "NOT LIKE", "IN", "NOT IN", "BETWEEN",
         "NOT BETWEEN", "IS NULL", "IS NOT NULL"];
+
+    /** @inheritDoc */
+    public function buildWithDatabaseStrategy(DatabaseStrategy $database): string
+    {
+        return '';
+    }
 
     /**
      * @inheritDoc

@@ -9,9 +9,11 @@ use PHPNomad\Database\Interfaces\QueryBuilder as QueryBuilderInterface;
 use PHPNomad\Database\Interfaces\Table;
 use PHPNomad\Database\Traits\WithPrependedFields;
 use PHPNomad\MySql\Integration\Facades\Database;
+use PHPNomad\MySql\Integration\Interfaces\CanBuildWithDatabaseStrategy;
+use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\Utils\Helpers\Arr;
 
-class QueryBuilder implements QueryBuilderInterface, HasQueryTables
+class QueryBuilder implements QueryBuilderInterface, HasQueryTables, CanBuildWithDatabaseStrategy
 {
     use WithPrependedFields;
 
@@ -46,6 +48,12 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
 
     /** @var list<array{table: Table, name: string, alias: string}> */
     protected array $joinedQuerySources = [];
+
+    /** @inheritDoc */
+    public function buildWithDatabaseStrategy(DatabaseStrategy $database): string
+    {
+        return '';
+    }
 
     /** @inheritDoc */
     public function getReferencedTables(): array
