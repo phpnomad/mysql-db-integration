@@ -13,8 +13,13 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
 {
     use WithPrependedFields;
 
+    /** @var list<mixed> */
     protected array $clauses = [];
+    /** @var list<mixed> */
     protected array $preparedValues = [];
+    /** @var list<DatabaseStrategy> */
+    private array $databaseStrategyStack = [];
+    /** @var list<string> */
     protected array $validOperators = ["=", "<", ">", "<=", ">=", "<>", "!=",
         "LIKE", "NOT LIKE", "IN", "NOT IN", "BETWEEN",
         "NOT BETWEEN", "IS NULL", "IS NOT NULL"];
@@ -22,7 +27,13 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
     /** @inheritDoc */
     public function buildWithDatabaseStrategy(DatabaseStrategy $database): string
     {
-        return '';
+        $this->databaseStrategyStack[] = $database;
+
+        try {
+            return $this->build();
+        } finally {
+            array_pop($this->databaseStrategyStack);
+        }
     }
 
     /**
@@ -90,7 +101,7 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
     /**
      * Gets the field string, filtering invalid fields.
      *
-     * @param $field
+     * @param string|string[] $field
      * @return string|null
      */
     protected function getFieldString($field): ?string
@@ -103,8 +114,8 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
 
         if (is_array($field)) {
             $fieldStr = Arr::process($field)
-                ->filter(fn($field) => $this->tableHasField($field))
-                ->map(fn($field) => $this->prependField($field))
+                ->filter(fn ($field) => $this->tableHasField($field))
+                ->map(fn ($field) => $this->prependField($field))
                 ->setSeparator(', ')
                 ->toString();
 
@@ -121,7 +132,7 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
      *
      * @param string|string[] $field The field, or fields to be compared.
      * @param string $operator The operator to be used in the comparison.
-     * @param array $values The values to be compared against.
+     * @param array<mixed> $values The values to be compared against.
      * @param ?string $logic (optional) The logic operator to be prepended to the condition.
      * @return $this
      */
@@ -182,7 +193,7 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
                     if ($groupClause instanceof ClauseBuilder) {
                         $marker++;
                         $uniqueMarker = '__NOMADIC_SUBQUERY__' . $marker;
-                        $builtClause = $groupClause->build();
+                        $builtClause = $this->buildClause($groupClause);
                         $subQueryReplacements[$uniqueMarker] = $builtClause;
                         $groupParts[] = $uniqueMarker;
                     }
@@ -193,7 +204,7 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
             } elseif ($clause instanceof ClauseBuilder) {
                 $marker++;
                 $uniqueMarker = '__NOMADIC_SUBQUERY__' . $marker;
-                $builtClause = $clause->build();
+                $builtClause = $this->buildClause($clause);
                 $subQueryReplacements[$uniqueMarker] = $builtClause;
                 $queryParts[] = $uniqueMarker;
             }
@@ -204,7 +215,10 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
 
             // Prepare the query with initial values if available
             if (!empty($allValues)) {
-                $query = Database::parse($query, ...$allValues);
+                $database = $this->getActiveDatabaseStrategy();
+                $query = $database === null
+                    ? Database::parse($query, ...$allValues)
+                    : $database->parse($query, ...$allValues);
             }
 
             // Replace subquery markers with their actual queries
@@ -218,6 +232,26 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
         return $query;
     }
 
+    protected function buildClause(ClauseBuilder $clause): string
+    {
+        $database = $this->getActiveDatabaseStrategy();
+
+        if ($database !== null && $clause instanceof CanBuildWithDatabaseStrategy) {
+            return $clause->buildWithDatabaseStrategy($database);
+        }
+
+        return $clause->build();
+    }
+
+    protected function getActiveDatabaseStrategy(): ?DatabaseStrategy
+    {
+        if ($this->databaseStrategyStack === []) {
+            return null;
+        }
+
+        return $this->databaseStrategyStack[count($this->databaseStrategyStack) - 1];
+    }
+
     /**
      * @inheritDoc
      */
@@ -229,11 +263,15 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
         return $this;
     }
 
+    /**
+     * @param string|string[] $field
+     * @param array<mixed> $values
+     */
     protected function generatePlaceholder($field, array $values, string $operator): string
     {
         $operator = strtoupper($operator);
 
-        if($operator === 'IS NULL' || $operator === 'IS NOT NULL'){
+        if ($operator === 'IS NULL' || $operator === 'IS NOT NULL') {
             return "";
         }
 
