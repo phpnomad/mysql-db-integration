@@ -11,6 +11,8 @@ final class OutcomeFaultPdo extends PDO
     public ?string $faultAt = null;
     public bool $afterOperation = false;
     public bool $throwFault = true;
+    public ?bool $rollbackThrowsAfterCommitFault = null;
+    public bool $rollbackAfterOperationAfterCommitFault = false;
     public ?PDOException $faultCause = null;
     public int $commitCalls = 0;
     public int $rollbackCalls = 0;
@@ -32,6 +34,12 @@ final class OutcomeFaultPdo extends PDO
     public function rollBack(): bool
     {
         $this->rollbackCalls++;
+        if ($this->faultAt === 'commit' && $this->rollbackThrowsAfterCommitFault !== null) {
+            if ($this->rollbackAfterOperationAfterCommitFault) {
+                parent::rollBack();
+            }
+            return $this->failAcknowledgement('Rollback acknowledgement fault', 2006, $this->rollbackThrowsAfterCommitFault);
+        }
         if ($this->faultAt !== 'rollback') {
             return parent::rollBack();
         }
@@ -47,12 +55,12 @@ final class OutcomeFaultPdo extends PDO
         return $this->faultInfo ?? parent::errorInfo();
     }
 
-    private function failAcknowledgement(): bool
+    private function failAcknowledgement(string $message = 'Connection acknowledgement fault', int $code = 2013, ?bool $throws = null): bool
     {
-        $this->faultInfo = ['HY000', 2013, 'Connection acknowledgement fault'];
-        $this->faultCause = new PDOException('Connection acknowledgement fault');
+        $this->faultInfo = ['HY000', $code, $message];
+        $this->faultCause = new PDOException($message);
         $this->faultCause->errorInfo = $this->faultInfo;
-        if ($this->throwFault) {
+        if ($throws ?? $this->throwFault) {
             throw $this->faultCause;
         }
         return false;

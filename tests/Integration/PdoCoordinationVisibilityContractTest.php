@@ -5,6 +5,7 @@ namespace PHPNomad\MySql\Integration\Tests\Integration;
 use PDO;
 use PHPNomad\Database\Exceptions\UnsupportedCoordinationException;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
+use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\CoordinationTable;
 use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\OwnedPdoCoordinationContractCase;
 
 /** Real account grants distinguish absent metadata from invisible metadata. */
@@ -88,7 +89,54 @@ final class PdoCoordinationVisibilityContractTest extends OwnedPdoCoordinationCo
         $this->assertFailureLog('validation', 'unchanged', false, UnsupportedCoordinationException::class);
     }
 
-    private function useRestrictedAccount(string $coverage): void
+    /** @dataProvider participantGrantCoverage */
+    public function testDirectTableGrantsMustCoverEveryParticipant(?int $missingPosition): void
+    {
+        $third = new CoordinationTable($this->effects->getName() . '_third', ['id']);
+        $this->createTable($third->getName(), '(id BIGINT PRIMARY KEY, score BIGINT NOT NULL)');
+        $participants = [$this->parents, $this->effects, $third];
+        $names = array_map(static fn(CoordinationTable $table): string => $table->getName(), $participants);
+        $granted = $names;
+        if ($missingPosition !== null) {
+            unset($granted[$missingPosition]);
+        }
+        $this->useRestrictedAccount('direct tables', array_values($granted));
+        $calls = 0;
+        try {
+            $result = $this->strategy->coordinate($this->parents, ['tenantId' => 1, 'id' => 7], $participants,
+                function (DatabaseStrategy $backend) use (&$calls, $third): string {
+                    $calls++;
+                    $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
+                    $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 13)', $third->getName()));
+                    return 'committed';
+                }
+            );
+            self::assertNull($missingPosition, 'Missing direct visibility must refuse before the callback.');
+            self::assertSame('committed', $result);
+        } catch (UnsupportedCoordinationException $failure) {
+            self::assertNotNull($missingPosition, 'Complete direct table grants must be accepted.');
+        }
+        self::assertSame($missingPosition === null ? 1 : 0, $calls);
+        self::assertFalse($this->primary->inTransaction());
+        self::assertSame($missingPosition === null ? [['id' => '1', 'score' => '12']] : [], $this->visibleEffects());
+        $thirdRows = $this->observer->query('SELECT * FROM `' . $third->getName() . '`');
+        self::assertNotFalse($thirdRows);
+        self::assertSame($missingPosition === null ? [['id' => '1', 'score' => '13']] : [], $thirdRows->fetchAll());
+        if ($missingPosition === null) {
+            self::assertSame([], $this->logger->entries);
+        } else {
+            $this->assertFailureLog('validation', 'unchanged', false, UnsupportedCoordinationException::class, null, null, $names);
+        }
+    }
+
+    /** @return array<string, array{?int}> */
+    public static function participantGrantCoverage(): array
+    {
+        return ['first absent' => [0], 'middle absent' => [1], 'last absent' => [2], 'all present' => [null]];
+    }
+
+    /** @param list<string> $triggerTables */
+    private function useRestrictedAccount(string $coverage, array $triggerTables = []): void
     {
         if ($coverage === 'partial revoke') {
             $setting = $this->observer->query('SELECT @@GLOBAL.partial_revokes');
@@ -110,6 +158,17 @@ final class PdoCoordinationVisibilityContractTest extends OwnedPdoCoordinationCo
         $this->observer->exec('GRANT SELECT, INSERT, UPDATE, DELETE ON ' . $database . '.* TO ' . $account);
         if ($coverage === 'schema') {
             $this->observer->exec('GRANT TRIGGER ON ' . $database . '.* TO ' . $account);
+        }
+        if ($coverage === 'schema all') {
+            $this->observer->exec('GRANT ALL PRIVILEGES ON ' . $database . '.* TO ' . $account);
+        }
+        if ($coverage === 'table all') {
+            foreach ([$this->parents->getName(), $this->effects->getName()] as $table) {
+                $this->observer->exec('GRANT ALL PRIVILEGES ON ' . $database . '.`' . $table . '` TO ' . $account);
+            }
+        }
+        foreach ($triggerTables as $table) {
+            $this->observer->exec('GRANT TRIGGER ON ' . $database . '.`' . $table . '` TO ' . $account);
         }
         if ($coverage === 'partial revoke') {
             $this->observer->exec('GRANT TRIGGER ON *.* TO ' . $account);
@@ -156,7 +215,10 @@ final class PdoCoordinationVisibilityContractTest extends OwnedPdoCoordinationCo
     /** @return array<string, array{string}> */
     public static function sufficientVisibility(): array
     {
-        return ['schema' => ['schema'], 'each table' => ['each table']];
+        return [
+            'schema' => ['schema'], 'each table' => ['each table'],
+            'schema all' => ['schema all'], 'table all' => ['table all'],
+        ];
     }
 
     /** @return array<string, array{string}> */

@@ -119,6 +119,62 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
         $this->assertFailureLog('commit', 'unknown', false, DatastoreErrorException::class);
     }
 
+    /** @dataProvider combinedAcknowledgementFaults */
+    public function testFailedCommitFollowedByUnconfirmedRollbackHasAnUnknownOutcome(
+        bool $commitThrows,
+        bool $rollbackThrows,
+        bool $afterRollback
+    ): void {
+        $pdo = $this->connect(OutcomeFaultPdo::class);
+        $pdo->faultAt = 'commit';
+        $pdo->throwFault = $commitThrows;
+        $pdo->rollbackThrowsAfterCommitFault = $rollbackThrows;
+        $pdo->rollbackAfterOperationAfterCommitFault = $afterRollback;
+        $this->usePrimary($pdo);
+        $calls = 0;
+        try {
+            try {
+                $this->coordinate(function (DatabaseStrategy $backend) use (&$calls): string {
+                    $calls++;
+                    $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
+                    return 'must not report success';
+                });
+                self::fail('An unconfirmed cleanup rollback leaves the commit outcome unknown.');
+            } catch (CoordinatedOperationOutcomeUnknownException $failure) {
+                $cause = $failure->getPrevious();
+                self::assertInstanceOf(PDOException::class, $cause);
+                self::assertSame(['HY000', 2006, 'Rollback acknowledgement fault'], $cause->errorInfo);
+                if ($rollbackThrows) {
+                    self::assertSame($pdo->faultCause, $cause);
+                }
+            }
+            self::assertSame(1, $calls);
+            self::assertSame(1, $pdo->commitCalls);
+            self::assertSame(1, $pdo->rollbackCalls);
+            self::assertSame(!$afterRollback, $pdo->inTransaction());
+            self::assertSame([], $this->visibleEffects());
+            $this->assertFailureLog('rollback', 'unknown', false, PDOException::class, 'HY000', 2006);
+        } finally {
+            $pdo->faultAt = null;
+        }
+    }
+
+    /** @return array<string, array{bool, bool, bool}> */
+    public static function combinedAcknowledgementFaults(): array
+    {
+        $cases = [];
+        foreach ([false, true] as $commitThrows) {
+            foreach ([false, true] as $rollbackThrows) {
+                foreach ([false, true] as $afterRollback) {
+                    $name = 'commit ' . ($commitThrows ? 'throw' : 'false') . ', rollback ' .
+                        ($rollbackThrows ? 'throw' : 'false') . ($afterRollback ? ' after' : ' before');
+                    $cases[$name] = [$commitThrows, $rollbackThrows, $afterRollback];
+                }
+            }
+        }
+        return $cases;
+    }
+
     /** @return array<string, array{string}> */
     public static function lostOwnership(): array
     {
