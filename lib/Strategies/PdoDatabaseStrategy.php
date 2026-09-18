@@ -77,6 +77,14 @@ class PdoDatabaseStrategy implements DatabaseStrategy
         try {
             $statement = $this->connection->pdo()->query($query);
 
+            if ($statement === false) {
+                $errorInfo = $this->connection->pdo()->errorInfo();
+                $failure = new PDOException((string) ($errorInfo[2] ?? 'PDO query failed.'));
+                $failure->errorInfo = $errorInfo;
+
+                throw $failure;
+            }
+
             if ($statement->columnCount() > 0) {
                 return $statement->fetchAll();
             }
