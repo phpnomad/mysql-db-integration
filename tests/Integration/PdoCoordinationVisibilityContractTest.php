@@ -12,14 +12,21 @@ use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\OwnedPdoCoordinationCo
 final class PdoCoordinationVisibilityContractTest extends OwnedPdoCoordinationContractCase
 {
     private ?int $previousPartialRevokes = null;
+    private ?string $otherOwnedSchema = null;
 
     protected function tearDown(): void
     {
         try {
             parent::tearDown();
         } finally {
-            if ($this->previousPartialRevokes !== null) {
-                $this->observer->exec('SET GLOBAL partial_revokes = ' . $this->previousPartialRevokes);
+            try {
+                if ($this->previousPartialRevokes !== null) {
+                    $this->observer->exec('SET GLOBAL partial_revokes = ' . $this->previousPartialRevokes);
+                }
+            } finally {
+                if ($this->otherOwnedSchema !== null) {
+                    $this->observer->exec('DROP DATABASE `' . $this->otherOwnedSchema . '`');
+                }
             }
         }
     }
@@ -156,6 +163,19 @@ final class PdoCoordinationVisibilityContractTest extends OwnedPdoCoordinationCo
         self::assertNotSame('', $schema);
         $database = '`' . str_replace('`', '``', $schema) . '`';
         $this->observer->exec('GRANT SELECT, INSERT, UPDATE, DELETE ON ' . $database . '.* TO ' . $account);
+        if (in_array($coverage, ['other schema', 'other schema tables'], true)) {
+            $other = 'nomad_scope_' . bin2hex(random_bytes(6));
+            $this->observer->exec('CREATE DATABASE `' . $other . '`');
+            $this->otherOwnedSchema = $other;
+            if ($coverage === 'other schema') {
+                $this->observer->exec('GRANT TRIGGER ON `' . $other . '`.* TO ' . $account);
+            } else {
+                foreach ([$this->parents->getName(), $this->effects->getName()] as $table) {
+                    $this->observer->exec('CREATE TABLE `' . $other . '`.`' . $table . '` (id BIGINT PRIMARY KEY) ENGINE=InnoDB');
+                    $this->observer->exec('GRANT TRIGGER ON `' . $other . '`.`' . $table . '` TO ' . $account);
+                }
+            }
+        }
         if ($coverage === 'schema') {
             $this->observer->exec('GRANT TRIGGER ON ' . $database . '.* TO ' . $account);
         }
@@ -229,6 +249,7 @@ final class PdoCoordinationVisibilityContractTest extends OwnedPdoCoordinationCo
         return [
             'none' => ['none'], 'parent only' => ['parent only'], 'effect only' => ['effect only'], 'role only' => ['role only'],
             'schema wildcard' => ['schema wildcard'], 'escaped schema pattern' => ['escaped schema pattern'],
+            'other schema' => ['other schema'], 'other schema tables' => ['other schema tables'],
         ];
     }
 
