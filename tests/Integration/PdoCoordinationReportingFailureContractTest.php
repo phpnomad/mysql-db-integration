@@ -93,6 +93,7 @@ final class PdoCoordinationReportingFailureContractTest extends OwnedPdoCoordina
         self::assertFalse($this->primary->inTransaction());
         self::assertSame([], $this->visibleEffects());
         $this->assertReportingAttempt($position, 'callback', 'rolled_back', false, RuntimeException::class);
+        self::assertSame([['id' => '42']], $this->strategy->query('SELECT 42 AS id'));
     }
 
     /** @dataProvider loggerFailures */
@@ -240,7 +241,28 @@ final class PdoCoordinationReportingFailureContractTest extends OwnedPdoCoordina
         );
     }
 
-    // @phpstan-ignore method.unused
+    /** @dataProvider loggerFailures */
+    public function testSuccessfulCommitDoesNotTouchTheBrokenLogger(
+        string $position,
+        bool $reportingIsError
+    ): void {
+        $this->failLogger($position, $reportingIsError);
+        $calls = 0;
+
+        $result = $this->coordinate(function (DatabaseStrategy $backend) use (&$calls): string {
+            $calls++;
+            $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
+            return 'committed';
+        });
+
+        self::assertSame('committed', $result);
+        self::assertSame(1, $calls);
+        self::assertSame(0, $this->logger->writeAttempts);
+        self::assertSame([], $this->logger->entries);
+        self::assertFalse($this->primary->inTransaction());
+        self::assertSame([['id' => '1', 'score' => '12']], $this->visibleEffects());
+    }
+
     private function failLogger(string $position, bool $reportingIsError): Throwable
     {
         $failure = $reportingIsError
