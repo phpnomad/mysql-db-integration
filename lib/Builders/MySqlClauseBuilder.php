@@ -167,6 +167,7 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
             throw new QueryBuilderException('A condition field cannot resolve to an empty value.');
         }
 
+        $values = $this->normalizeConditionValues($operator, $values);
         $placeholder = $this->generatePlaceholder($field, $values, $operator);
 
         if (!empty($this->clauses) && $logic && in_array(strtoupper($logic), ['AND', 'OR'])) {
@@ -177,7 +178,7 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
         $this->clauses[] = $operator;
         $this->clauses[] = $placeholder;
 
-        foreach (Arr::whereNotNull($values) as $value) {
+        foreach ($values as $value) {
             $this->preparedValues[] = $value;
         }
 
@@ -299,6 +300,46 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
         }
 
         return '?s';
+    }
+
+    /**
+     * @param list<mixed> $values
+     * @return list<mixed>
+     * @throws QueryBuilderException
+     */
+    protected function normalizeConditionValues(string $operator, array $values): array
+    {
+        $count = count($values);
+
+        if ($operator === 'IS NULL' || $operator === 'IS NOT NULL') {
+            if ($values === [] || $values === [null]) {
+                return [];
+            }
+
+            throw new QueryBuilderException("Operator {$operator} accepts no values or one null value.");
+        }
+
+        if ($operator === 'BETWEEN' || $operator === 'NOT BETWEEN') {
+            if ($count !== 2) {
+                throw new QueryBuilderException("Operator {$operator} expects exactly two values; {$count} given.");
+            }
+
+            return $values;
+        }
+
+        if ($operator === 'IN' || $operator === 'NOT IN') {
+            if ($count === 0) {
+                throw new QueryBuilderException("Operator {$operator} expects at least one value.");
+            }
+
+            return $values;
+        }
+
+        if ($count !== 1) {
+            throw new QueryBuilderException("Operator {$operator} expects exactly one value; {$count} given.");
+        }
+
+        return $values;
     }
 
     /** @throws QueryBuilderException */

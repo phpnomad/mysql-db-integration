@@ -75,6 +75,35 @@ final class PredicateValidationInternalsTest extends TestCase
         self::assertSame('?s AND ?s', $probe->placeholder('NOT BETWEEN'));
     }
 
+    /**
+     * @dataProvider valuedConditionValues
+     * @param list<mixed> $values
+     */
+    public function testValuedConditionValuesRetainEveryPosition(string $operator, array $values): void
+    {
+        self::assertSame($values, (new PredicateValidationProbe())->conditionValues($operator, $values));
+    }
+
+    /** @dataProvider nullOperators */
+    public function testNullOperatorsNormalizeTheirCompatibilityNull(string $operator): void
+    {
+        $probe = new PredicateValidationProbe();
+
+        self::assertSame([], $probe->conditionValues($operator, []));
+        self::assertSame([], $probe->conditionValues($operator, [null]));
+    }
+
+    /**
+     * @dataProvider invalidConditionValues
+     * @param list<mixed> $values
+     */
+    public function testInvalidConditionValueCountsAreRejected(string $operator, array $values): void
+    {
+        $this->expectException(QueryBuilderException::class);
+
+        (new PredicateValidationProbe())->conditionValues($operator, $values);
+    }
+
     /** @dataProvider validGroupLogic */
     public function testGroupLogicNormalizesTheValidVocabulary(string $logic, string $expected): void
     {
@@ -109,6 +138,41 @@ final class PredicateValidationInternalsTest extends TestCase
     public static function invalidGroupLogic(): array
     {
         return ['empty' => [''], 'unknown' => ['XOR'], 'injection-shaped' => ['OR 1=1 OR']];
+    }
+
+    /** @return array<string, array{string, list<mixed>}> */
+    public static function valuedConditionValues(): array
+    {
+        return [
+            'scalar null' => ['=', [null]],
+            'range lower null' => ['BETWEEN', [null, 20]],
+            'range upper null' => ['NOT BETWEEN', [20, null]],
+            'variadic list null' => ['IN', [10, null, 20]],
+            'array list null' => ['NOT IN', [[10, null, 20]]],
+            'compound tuples' => ['IN', [['id' => 1, 'score' => 10], ['id' => 2, 'score' => null]]],
+            'explicit empty list' => ['IN', [[]]],
+        ];
+    }
+
+    /** @return array<string, array{string}> */
+    public static function nullOperators(): array
+    {
+        return ['is null' => ['IS NULL'], 'is not null' => ['IS NOT NULL']];
+    }
+
+    /** @return array<string, array{string, list<mixed>}> */
+    public static function invalidConditionValues(): array
+    {
+        return [
+            'scalar missing' => ['=', []],
+            'scalar extra' => ['LIKE', [10, 20]],
+            'range missing' => ['BETWEEN', [10]],
+            'range extra' => ['NOT BETWEEN', [10, 20, 30]],
+            'in empty' => ['IN', []],
+            'not in empty' => ['NOT IN', []],
+            'is null valued' => ['IS NULL', [10]],
+            'is not null extra null' => ['IS NOT NULL', [null, null]],
+        ];
     }
 
     private function probe(): PredicateValidationProbe
@@ -152,6 +216,15 @@ final class PredicateValidationProbe extends MySqlClauseBuilder
     public function placeholder(string $operator): string
     {
         return $this->generatePlaceholder('id', [7, 9], $operator);
+    }
+
+    /**
+     * @param list<mixed> $values
+     * @return list<mixed>
+     */
+    public function conditionValues(string $operator, array $values): array
+    {
+        return $this->normalizeConditionValues($operator, $values);
     }
 
     public function groupLogic(string $logic): string
