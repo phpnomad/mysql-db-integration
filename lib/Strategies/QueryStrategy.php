@@ -53,6 +53,7 @@ class QueryStrategy implements CoreQueryStrategy
     {
         $columns = Arr::process($data)
             ->keys()
+            ->map(fn ($column) => $this->db->parse('?n', $column))
             ->setSeparator(',')
             ->toString();
 
@@ -61,11 +62,14 @@ class QueryStrategy implements CoreQueryStrategy
             ->setSeparator(',')
             ->toString();
 
-        $query = $this->db->parse(
-            "INSERT INTO ?n ($columns) VALUES ($placeholders)",
-            $table->getName(),
-            ...Arr::values($data)
-        );
+        $query = empty($data)
+            ? $this->db->parse('INSERT INTO ?n () VALUES ()', $table->getName())
+            : $this->db->parse(
+                "INSERT INTO ?n (?p) VALUES ($placeholders)",
+                $table->getName(),
+                $columns,
+                ...Arr::values($data)
+            );
 
         $this->db->query($query);
         return $this->resolveInsertIdentity($table, $data);
