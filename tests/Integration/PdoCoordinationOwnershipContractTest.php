@@ -60,18 +60,18 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
     {
         $pdo = $this->connect(InactiveCoordinationRollbackPdo::class);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, $mode);
-        $pdo->arm($boundary, $this->effects->getName());
         $pdo->requireOwnedEntry = false;
         $this->usePrimary($pdo);
         $name = $this->parents->getName();
         $descriptorCalls = 0;
         $descriptor = $this->createMock(Table::class);
         $descriptor->method('getFieldsForIdentity')->willReturn(['tenantId', 'id']);
-        $descriptor->method('getName')->willReturnCallback(function () use ($name, &$descriptorCalls): string {
+        $descriptor->method('getName')->willReturnCallback(function () use ($name, &$descriptorCalls, $pdo, $boundary): string {
             if ($this->primary->inTransaction()) {
                 $descriptorCalls++;
                 $this->primary->exec('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 99)');
                 $this->primary->commit();
+                $pdo->arm($boundary, $this->effects->getName());
             }
             return $name;
         });
