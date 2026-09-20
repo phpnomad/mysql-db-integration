@@ -19,31 +19,66 @@ final class RootQuerySourceConsumerBuilder extends QueryBuilder
 }
 
 $table = static function (string $name, string $alias): Table {
-    return new class($name, $alias) implements Table {
-        public function __construct(private string $name, private string $alias) {}
-        public function getName(): string { return $this->name; }
-        public function getAlias(): string { return $this->alias; }
-        public function getTableVersion(): string { return '1'; }
-        public function getColumns(): array { return [new Column('id', 'BIGINT')]; }
-        public function getIndices(): array { return []; }
-        public function getCharset(): ?string { return null; }
-        public function getCollation(): ?string { return null; }
-        public function getFieldsForIdentity(): array { return ['id']; }
-        public function getUnprefixedName(): string { return $this->name; }
-        public function getSingularUnprefixedName(): string { return $this->name; }
+    return new class ($name, $alias) implements Table {
+        public function __construct(private string $name, private string $alias)
+        {
+        }
+        public function getName(): string
+        {
+            return $this->name;
+        }
+        public function getAlias(): string
+        {
+            return $this->alias;
+        }
+        public function getTableVersion(): string
+        {
+            return '1';
+        }
+        public function getColumns(): array
+        {
+            return [new Column('id', 'BIGINT')];
+        }
+        public function getIndices(): array
+        {
+            return [];
+        }
+        public function getCharset(): ?string
+        {
+            return null;
+        }
+        public function getCollation(): ?string
+        {
+            return null;
+        }
+        public function getFieldsForIdentity(): array
+        {
+            return ['id'];
+        }
+        public function getUnprefixedName(): string
+        {
+            return $this->name;
+        }
+        public function getSingularUnprefixedName(): string
+        {
+            return $this->name;
+        }
     };
 };
 $root = $table('scores', 's');
 $join = $table('programs', 'p');
+$assertConsumerRootState = static function (string $actual, string $failure): void {
+    if ($actual !== 'consumer-root') {
+        fwrite(STDERR, $failure);
+        exit(1);
+    }
+};
 $builder = (new RootQuerySourceConsumerBuilder())
     ->from($root)
     ->select('*')
     ->leftJoin($join, 'programId', 'id');
 
-if ($builder->consumerRootState() !== 'consumer-root') {
-    fwrite(STDERR, 'CONSUMER_ROOT_STATE_CHANGED');
-    exit(1);
-}
+$assertConsumerRootState($builder->consumerRootState(), 'CONSUMER_ROOT_STATE_CHANGED');
 if (method_exists($builder, 'getReferencedTables') && $builder->getReferencedTables() !== [$root, $join]) {
     fwrite(STDERR, 'PARENT_QUERY_METADATA_CHANGED');
     exit(1);
@@ -52,9 +87,6 @@ if ($builder->build() !== 'SELECT * FROM scores AS s LEFT JOIN programs AS p ON 
     fwrite(STDERR, 'BUILT_QUERY_CHANGED');
     exit(1);
 }
-if ($builder->consumerRootState() !== 'consumer-root') {
-    fwrite(STDERR, 'CONSUMER_ROOT_STATE_RESET');
-    exit(1);
-}
+$assertConsumerRootState($builder->consumerRootState(), 'CONSUMER_ROOT_STATE_RESET');
 
 fwrite(STDOUT, 'ROOT_QUERY_SOURCE_SUBCLASS_COMPATIBLE');
