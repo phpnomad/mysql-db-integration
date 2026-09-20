@@ -5,6 +5,11 @@ on: [ push, pull_request ]
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    env:
+      TEST_MYSQL_DSN: mysql:host=127.0.0.1;port=3308;dbname=phpnomad_pdo_test;charset=utf8mb4
+      TEST_MYSQL_COORDINATION_DSN: mysql:host=127.0.0.1;port=3308;dbname=nomad_coordination_fixture;charset=utf8mb4
+      TEST_MYSQL_USER: root
+      TEST_MYSQL_PASS: root
     strategy:
       fail-fast: false
       matrix:
@@ -19,6 +24,7 @@ jobs:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: phpnomad_pdo_test
         ports:
           - 3308:3306
         options: >-
@@ -35,5 +41,8 @@ jobs:
           coverage: none
       - name: Install dependencies
         run: composer install --no-interaction --no-progress --prefer-dist
+      - name: Prepare coordination test schema
+        run: >-
+          php -r '$pdo = new PDO(getenv("TEST_MYSQL_DSN"), getenv("TEST_MYSQL_USER"), getenv("TEST_MYSQL_PASS"), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]); $pdo->exec("CREATE DATABASE nomad_coordination_fixture");'
       - name: Run PHPUnit
         run: ./vendor/bin/phpunit
