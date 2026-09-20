@@ -35,19 +35,18 @@ final class PredicateValidationInternalsTest extends TestCase
 
     public function testExistingNullableFieldStringOverrideRemainsCompatible(): void
     {
-        $table = $this->createMock(Table::class);
-        $table->method('getAlias')->willReturn('s');
-        $table->method('getColumns')->willReturn([new Column('id', 'BIGINT')]);
-        $probe = (new NullableFieldStringOverrideClauseBuilder())->useTable($table);
+        [$exitCode, $output] = $this->runFixture('NullableFieldStringOverrideCompatibilityFixture.php');
 
-        self::assertSame('s.id', $probe->fieldString('id'));
+        self::assertSame(0, $exitCode, $output);
+        self::assertSame('NULLABLE_OVERRIDE_LOADED', $output);
     }
 
     public function testNullableFieldStringOverrideCannotSilentlyDropACondition(): void
     {
-        $this->expectException(QueryBuilderException::class);
+        [$exitCode, $output] = $this->runFixture('NullFieldStringOverrideRejectionFixture.php');
 
-        (new NullFieldStringOverrideClauseBuilder())->condition('id', '=', [7]);
+        self::assertSame(0, $exitCode, $output);
+        self::assertSame('NULL_OVERRIDE_REJECTED', $output);
     }
 
     public function testFieldStringRejectsAnEmptyFieldList(): void
@@ -120,6 +119,20 @@ final class PredicateValidationInternalsTest extends TestCase
 
         return (new PredicateValidationProbe())->useTable($table);
     }
+
+    /** @return array{int, string} */
+    private function runFixture(string $fixture): array
+    {
+        $command = escapeshellarg(PHP_BINARY)
+            . ' '
+            . escapeshellarg(dirname(__DIR__) . '/Fixtures/' . $fixture)
+            . ' 2>&1';
+        $lines = [];
+        $exitCode = 0;
+        exec($command, $lines, $exitCode);
+
+        return [$exitCode, implode("\n", $lines)];
+    }
 }
 
 final class PredicateValidationProbe extends MySqlClauseBuilder
@@ -150,32 +163,5 @@ final class PredicateValidationProbe extends MySqlClauseBuilder
     public function clauseParts(): array
     {
         return $this->clauses;
-    }
-}
-
-final class NullableFieldStringOverrideClauseBuilder extends MySqlClauseBuilder
-{
-    protected function getFieldString($field): ?string
-    {
-        return parent::getFieldString($field);
-    }
-
-    public function fieldString(string $field): ?string
-    {
-        return $this->getFieldString($field);
-    }
-}
-
-final class NullFieldStringOverrideClauseBuilder extends MySqlClauseBuilder
-{
-    protected function getFieldString($field): ?string
-    {
-        return null;
-    }
-
-    /** @param list<mixed> $values */
-    public function condition(string $field, string $operator, array $values): self
-    {
-        return $this->addCondition($field, $operator, $values);
     }
 }
