@@ -68,6 +68,16 @@ final class InsertIdentifierContractTest extends BoundFormattingContractCase
         self::assertStringContainsString('I<' . $column . '>', $query);
         self::assertStringContainsString('V<7>', $query);
         self::assertStringContainsString('V<' . json_encode($value, JSON_THROW_ON_ERROR) . '>', $query);
+        self::assertLessThan(
+            strpos($query, 'I<' . $column . '>'),
+            strpos($query, 'I<id>'),
+            'Executed column order must preserve its association with the values.'
+        );
+        self::assertLessThan(
+            strpos($query, 'V<' . json_encode($value, JSON_THROW_ON_ERROR) . '>'),
+            strpos($query, 'V<7>'),
+            'Executed values must retain the same order as their columns.'
+        );
     }
 
     /** @dataProvider failureKinds */
