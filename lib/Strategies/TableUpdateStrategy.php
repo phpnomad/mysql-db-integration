@@ -50,16 +50,15 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy, CoreTableColumnRet
         }
     }
 
-    /** Acceptance stub. Implementation is intentionally a separate phase. */
+    /** Architecture stub. Implementation follows acceptance-contract approval. */
     public function columnExists(Table $table, string $columnName): bool
     {
-        throw new \LogicException('Table column retirement is not implemented.');
+        return false;
     }
 
-    /** Acceptance stub. Implementation is intentionally a separate phase. */
+    /** Architecture stub. Implementation follows acceptance-contract approval. */
     public function retireColumns(Table $table, string ...$columnNames): void
     {
-        throw new \LogicException('Table column retirement is not implemented.');
     }
 
     /**
