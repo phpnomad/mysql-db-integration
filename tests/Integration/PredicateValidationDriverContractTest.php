@@ -27,11 +27,6 @@ use ReflectionProperty;
 /** Library boot and actual row effects expose silently broadened predicates. */
 final class PredicateValidationDriverContractTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-    }
-
     /** @dataProvider invalidIdentities */
     public function testInvalidFieldsPreventExecutionAndPreserveBothRows(string $operation, string $position): void
     {

@@ -14,11 +14,6 @@ use Throwable;
 /** Public predicate intake must preserve the complete requested condition. */
 final class PredicateValidationContractTest extends BoundFormattingContractCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-    }
-
     /**
      * @dataProvider invalidConditions
      * @param string|list<string> $field
