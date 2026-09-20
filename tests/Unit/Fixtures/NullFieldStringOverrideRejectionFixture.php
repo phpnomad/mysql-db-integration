@@ -24,7 +24,6 @@ final class NullFieldStringOverrideRejectionFixture extends MySqlClauseBuilder
 try {
     (new NullFieldStringOverrideRejectionFixture())->condition('id', '=', [7]);
 } catch (QueryBuilderException) {
-    // This expected exception is the refusal behavior the fixture observes.
     fwrite(STDOUT, "NULL_OVERRIDE_REJECTED\n");
     exit(0);
 }
