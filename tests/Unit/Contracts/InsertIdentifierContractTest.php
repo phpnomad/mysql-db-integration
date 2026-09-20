@@ -23,7 +23,6 @@ final class InsertIdentifierContractTest extends BoundFormattingContractCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->markTestIncomplete('Insert column identifier formatting is pending.');
     }
 
     /** @dataProvider columnNames */

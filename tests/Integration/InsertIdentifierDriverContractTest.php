@@ -25,7 +25,6 @@ final class InsertIdentifierDriverContractTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->markTestIncomplete('Live insert column identifier formatting is pending.');
     }
 
     /** @dataProvider literalColumns */
