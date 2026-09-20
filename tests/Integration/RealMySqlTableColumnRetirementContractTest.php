@@ -8,9 +8,14 @@ use PDO;
 use PDOException;
 use PHPNomad\Database\Factories\Column;
 use PHPNomad\Database\Interfaces\Table;
+use PHPNomad\Database\Interfaces\TableColumnRetirementStrategy as RetirementStrategy;
+use PHPNomad\Database\Interfaces\TableUpdateStrategy as UpdateStrategy;
+use PHPNomad\Di\Container;
+use PHPNomad\Loader\Bootstrapper;
 use PHPNomad\MySql\Integration\Connections\PdoConnection;
+use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
+use PHPNomad\MySql\Integration\MySqlInitializer;
 use PHPNomad\MySql\Integration\Strategies\PdoDatabaseStrategy;
-use PHPNomad\MySql\Integration\Strategies\TableUpdateStrategy;
 use PHPNomad\MySql\Integration\Tests\TestCase;
 
 /** Persisted-schema contract against an explicitly assigned MySQL database. */
@@ -20,7 +25,8 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
     private const CHILD_TABLE = 'nomad_column_retirement_child';
 
     private PDO $pdo;
-    private TableUpdateStrategy $strategy;
+    private Container $container;
+    private RetirementStrategy $strategy;
     private string $shadowSchema;
 
     protected function setUp(): void
@@ -47,9 +53,15 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
             $this->markTestSkipped('The assigned MySQL resource is unavailable: ' . $failure->getCode());
         }
 
-        $this->strategy = new TableUpdateStrategy(
-            new PdoDatabaseStrategy(PdoConnection::fromPdo($this->pdo))
+        $connection = PdoConnection::fromPdo($this->pdo);
+        $this->container = new Container();
+        $this->container->bindSingletonFromFactory(
+            PdoConnection::class,
+            static fn(): PdoConnection => $connection
         );
+        $this->container->bindSingleton(PdoDatabaseStrategy::class, DatabaseStrategy::class);
+        (new Bootstrapper($this->container, new MySqlInitializer()))->load();
+        $this->strategy = $this->container->get(RetirementStrategy::class);
         $this->shadowSchema = 'nomad_retirement_shadow_' . getmypid();
         $this->resetFixtures();
     }
@@ -82,7 +94,7 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
         $this->strategy->syncColumns($this->table());
 
         self::assertSame(
-            ['id', 'legacyValue', 'unrelatedUnknown', 'legacy value', 'odd`name', 'modernValue'],
+            ['id', 'legacyValue', 'unrelatedUnknown', 'legacy value', 'odd`name', 'select', 'legacy-name', 'légacy值', 'modernValue'],
             $this->columns()
         );
         self::assertSame(
@@ -93,12 +105,20 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
         );
     }
 
+    public function testBootstrapperResolvesOneStrategyForBaseAndRetirementContracts(): void
+    {
+        $this->markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
+
+        self::assertSame($this->strategy, $this->container->get(UpdateStrategy::class));
+    }
+
     public function testRetirementPersistsOnlyNamedDropsAndIsIdempotent(): void
     {
         $this->markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
 
-        $this->strategy->retireColumns($this->table(), 'legacyValue', 'legacy value', 'odd`name');
-        $this->strategy->retireColumns($this->table(), 'legacyValue', 'legacy value', 'odd`name');
+        $retired = ['legacyValue', 'legacy value', 'odd`name', 'select', 'legacy-name', 'légacy值'];
+        $this->strategy->retireColumns($this->table(), ...$retired);
+        $this->strategy->retireColumns($this->table(), ...$retired);
 
         self::assertSame(['id', 'unrelatedUnknown'], $this->columns());
         self::assertSame(
@@ -112,11 +132,15 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
         $this->markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
 
         try {
-            $this->strategy->retireColumns($this->table(), 'legacyValue', 'ID');
+            $this->strategy->retireColumns(
+                $this->table(['id', 'unrelatedUnknown']),
+                'legacyValue',
+                'UNRELATEDUNKNOWN'
+            );
             self::fail('A case-variant declared column must reject the whole batch.');
         } catch (\InvalidArgumentException $expected) {
             self::assertSame(
-                ['id', 'legacyValue', 'unrelatedUnknown', 'legacy value', 'odd`name'],
+                ['id', 'legacyValue', 'unrelatedUnknown', 'legacy value', 'odd`name', 'select', 'legacy-name', 'légacy值'],
                 $this->columns()
             );
         }
@@ -200,11 +224,13 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
         $this->pdo->exec(
             'CREATE TABLE ' . self::TABLE . ' ('
             . 'id INT PRIMARY KEY, legacyValue INT NULL, unrelatedUnknown VARCHAR(32) NULL, '
-            . '`legacy value` INT NULL, `odd``name` INT NULL) ENGINE=InnoDB'
+            . '`legacy value` INT NULL, `odd``name` INT NULL, `select` INT NULL, '
+            . '`legacy-name` INT NULL, `légacy值` INT NULL) ENGINE=InnoDB'
         );
         $this->pdo->exec(
             "INSERT INTO " . self::TABLE
-            . " (id, legacyValue, unrelatedUnknown, `legacy value`, `odd``name`) VALUES (1, 41, 'keep', 42, 43)"
+            . " (id, legacyValue, unrelatedUnknown, `legacy value`, `odd``name`, `select`, `legacy-name`, `légacy值`) "
+            . "VALUES (1, 41, 'keep', 42, 43, 44, 45, 46)"
         );
     }
 
@@ -220,15 +246,20 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
         return array_column($statement->fetchAll(), 'COLUMN_NAME');
     }
 
-    private function table(): Table
+    /** @param list<string> $declaredNames */
+    private function table(array $declaredNames = ['id', 'modernValue']): Table
     {
-        return new class implements Table {
+        return new class ($declaredNames) implements Table {
+            public function __construct(private array $declaredNames) {}
             public function getName(): string { return RealMySqlTableColumnRetirementContractTest::TABLE; }
             public function getAlias(): string { return 'retirement'; }
             public function getTableVersion(): string { return '1'; }
             public function getColumns(): array
             {
-                return [new Column('id', 'INT', null, 'PRIMARY KEY'), new Column('modernValue', 'INT')];
+                return array_map(
+                    static fn(string $name): Column => new Column($name, 'INT'),
+                    $this->declaredNames
+                );
             }
             public function getIndices(): array { return []; }
             public function getCharset(): ?string { return 'utf8mb4'; }

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "b9d54a5d7274a44e49b5658f48491d02",
+    "content-hash": "a29c78cd8af4dbe7c2a46312ebc3dd5c",
     "packages": [
         {
             "name": "phpnomad/cache",
@@ -96,7 +96,7 @@
             "version": "dev-packet/table-column-retirement-contract",
             "source": {
                 "type": "git",
-                "url": "git@github.com:phpnomad/db.git",
+                "url": "https://github.com/phpnomad/db.git",
                 "reference": "208e994c8dadd6e04f5cf441d68fc23fedc25d88"
             },
             "require": {
