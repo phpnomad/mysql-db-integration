@@ -3,9 +3,11 @@
 namespace PHPNomad\MySql\Integration\Tests\Unit\Contracts;
 
 use Error;
+use PHPNomad\Database\Exceptions\QueryBuilderException;
 use PHPNomad\Database\Interfaces\ClauseBuilder;
 use PHPNomad\Database\Interfaces\QueryBuilder as QueryBuilderInterface;
 use PHPNomad\Database\Services\TableSchemaService;
+use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
 use PHPNomad\MySql\Integration\Builders\MySqlClauseBuilder;
 use PHPNomad\MySql\Integration\Builders\QueryBuilder;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
@@ -56,8 +58,8 @@ final class BoundQueryStrategyContractTest extends BoundFormattingContractCase
         self::assertSame([
             ['s.id = ?s', [7]],
             $method === 'update'
-                ? ['UPDATE ?n AS ?n SET ?n = ?s WHERE s.id = BOUND', ['scores', 's', 'score', 12]]
-                : ['DELETE ?n FROM ?n AS ?n WHERE s.id = BOUND', ['s', 'scores', 's']],
+                ? ['UPDATE ?n AS ?n SET ?n = ?s WHERE ?p', ['scores', 's', 'score', 12, 's.id = BOUND']]
+                : ['DELETE ?n FROM ?n AS ?n WHERE ?p', ['s', 'scores', 's', 's.id = BOUND']],
         ], $calls);
     }
 
@@ -92,10 +94,10 @@ final class BoundQueryStrategyContractTest extends BoundFormattingContractCase
         $backend = $this->createMock(DatabaseStrategy::class);
         if ($method === 'update') {
             $backend->expects(self::once())->method('parse')
-                ->with('UPDATE ?n AS ?n SET ?n = ?s WHERE CUSTOM', 'scores', 's', 'score', 12)->willReturn('WRITE');
+                ->with('UPDATE ?n AS ?n SET ?n = ?s WHERE ?p', 'scores', 's', 'score', 12, 'CUSTOM')->willReturn('WRITE');
         } else {
             $backend->expects(self::once())->method('parse')
-                ->with('DELETE ?n FROM ?n AS ?n WHERE CUSTOM', 's', 'scores', 's')->willReturn('WRITE');
+                ->with('DELETE ?n FROM ?n AS ?n WHERE ?p', 's', 'scores', 's', 'CUSTOM')->willReturn('WRITE');
         }
         $backend->expects(self::once())->method('query')->with('WRITE')->willReturn(0);
         $this->globalDatabase->expects(self::never())->method('parse');
@@ -117,6 +119,33 @@ final class BoundQueryStrategyContractTest extends BoundFormattingContractCase
         } else {
             $strategy->delete($table, ['id' => 7]);
         }
+    }
+
+    /** @dataProvider writes */
+    public function testInvalidWriteIdentitiesAreWrappedAsDatastoreFailures(string $method): void
+    {
+        $backend = $this->createMock(DatabaseStrategy::class);
+        $backend->expects(self::never())->method('parse');
+        $backend->expects(self::never())->method('query');
+        $strategy = $this->strategy($backend);
+        $table = $this->table();
+        $caught = null;
+
+        try {
+            if ($method === 'update') {
+                $strategy->update($table, ['missing' => 7], ['score' => 12]);
+            } else {
+                $strategy->delete($table, ['missing' => 7]);
+            }
+        } catch (DatastoreErrorException $failure) {
+            $caught = $failure;
+        }
+
+        self::assertInstanceOf(DatastoreErrorException::class, $caught);
+        self::assertSame(ucfirst($method) . ' failed. Invalid query: Unknown field: missing', $caught->getMessage());
+        self::assertSame(500, $caught->getCode());
+        self::assertInstanceOf(QueryBuilderException::class, $caught->getPrevious());
+        self::assertSame('Unknown field: missing', $caught->getPrevious()->getMessage());
     }
 
     /** @dataProvider failurePaths */
