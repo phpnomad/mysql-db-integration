@@ -17,7 +17,6 @@ final class PredicateValidationContractTest extends BoundFormattingContractCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->markTestIncomplete('Explicit predicate validation implementation is pending.');
     }
 
     /**

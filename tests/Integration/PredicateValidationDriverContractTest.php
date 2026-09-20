@@ -30,7 +30,6 @@ final class PredicateValidationDriverContractTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->markTestIncomplete('Explicit predicate validation driver proof is pending.');
     }
 
     /** @dataProvider invalidIdentities */

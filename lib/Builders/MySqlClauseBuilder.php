@@ -2,6 +2,7 @@
 
 namespace PHPNomad\MySql\Integration\Builders;
 
+use PHPNomad\Database\Exceptions\QueryBuilderException;
 use PHPNomad\Database\Interfaces\ClauseBuilder;
 use PHPNomad\Database\Traits\WithPrependedFields;
 use PHPNomad\MySql\Integration\Facades\Database;
@@ -75,8 +76,7 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
      */
     public function group(string $logic, ClauseBuilder ...$clauses)
     {
-        $group = ['logic' => $logic, 'clauses' => $clauses];
-        $this->clauses[] = $group;
+        $this->clauses[] = ['logic' => $this->normalizeGroupLogic($logic), 'clauses' => $clauses];
 
         return $this;
     }
@@ -86,6 +86,8 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
      */
     public function andGroup(string $logic, ClauseBuilder ...$clauses)
     {
+        $logic = $this->normalizeGroupLogic($logic);
+
         if (!empty($this->clauses)) {
             $this->clauses[] = 'AND';
         }
@@ -98,6 +100,8 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
      */
     public function orGroup(string $logic, ClauseBuilder ...$clauses)
     {
+        $logic = $this->normalizeGroupLogic($logic);
+
         if (!empty($this->clauses)) {
             $this->clauses[] = 'OR';
         }
@@ -106,32 +110,38 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
     }
 
     /**
-     * Gets the field string, filtering invalid fields.
+     * Gets the field string after validating every requested field.
      *
      * @param string|string[] $field
      * @return string|null
+     * @throws QueryBuilderException
      */
     protected function getFieldString($field): ?string
     {
-        $result = null;
+        if (!is_array($field)) {
+            if (!$this->tableHasField($field)) {
+                throw new QueryBuilderException("Unknown field: {$field}");
+            }
 
-        if (!is_array($field) && $this->tableHasField($field)) {
-            $result = $this->prependField($field);
+            return $this->prependField($field);
         }
 
-        if (is_array($field)) {
-            $fieldStr = Arr::process($field)
-                ->filter(fn ($field) => $this->tableHasField($field))
-                ->map(fn ($field) => $this->prependField($field))
-                ->setSeparator(', ')
-                ->toString();
+        if ($field === []) {
+            throw new QueryBuilderException('A condition field list cannot be empty.');
+        }
 
-            if (!empty($fieldStr)) {
-                $result = "($fieldStr)";
+        foreach ($field as $member) {
+            if (!$this->tableHasField($member)) {
+                throw new QueryBuilderException("Unknown field: {$member}");
             }
         }
 
-        return $result;
+        $fieldStr = Arr::process($field)
+            ->map(fn ($member) => $this->prependField($member))
+            ->setSeparator(', ')
+            ->toString();
+
+        return "($fieldStr)";
     }
 
     /**
@@ -147,17 +157,14 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
     {
         $operator = strtoupper($operator);
 
-        if (!in_array($operator, $this->validOperators)) {
-            return $this;
+        if (!in_array($operator, $this->validOperators, true)) {
+            throw new QueryBuilderException("Unknown operator: {$operator}");
         }
 
         $fieldStr = $this->getFieldString($field);
 
-        // If the field isn't on the active table, drop the whole predicate.
-        // Otherwise we'd push `null` for the field but still emit the operator
-        // and placeholder, producing invalid SQL like `WHERE = 'value'`.
         if ($fieldStr === null) {
-            return $this;
+            throw new QueryBuilderException('A condition field cannot resolve to an empty value.');
         }
 
         $placeholder = $this->generatePlaceholder($field, $values, $operator);
@@ -287,6 +294,22 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
             return "($placeholders)";
         }
 
+        if ($operator === 'BETWEEN' || $operator === 'NOT BETWEEN') {
+            return '?s AND ?s';
+        }
+
         return '?s';
+    }
+
+    /** @throws QueryBuilderException */
+    protected function normalizeGroupLogic(string $logic): string
+    {
+        $logic = strtoupper($logic);
+
+        if (!in_array($logic, ['AND', 'OR'], true)) {
+            throw new QueryBuilderException("Unknown group logic: {$logic}");
+        }
+
+        return $logic;
     }
 }
