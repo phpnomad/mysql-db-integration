@@ -72,8 +72,27 @@ final class InsertIdentifierContractTest extends BoundFormattingContractCase
     {
         $original = $kind === 'error' ? new Error('Identifier unavailable') : new RuntimeException('Identifier unavailable');
         $backend = $this->createMock(DatabaseStrategy::class);
-        $backend->method('parse')->willThrowException($original);
-        $backend->expects(self::never())->method('query');
+        $backend->method('parse')->willReturnCallback(static function (string $sql, mixed ...$arguments) use ($original): string {
+            $offset = 0;
+            $result = preg_replace_callback('/\?[nsp]/', static function (array $match) use (&$offset, $arguments, $original): string {
+                $value = $arguments[$offset++];
+                if ($match[0] === '?n' && $value === 'order') {
+                    throw $original;
+                }
+                if ($match[0] === '?p') {
+                    self::assertIsString($value);
+                    return $value;
+                }
+                return json_encode($value, JSON_THROW_ON_ERROR);
+            }, $sql);
+            self::assertIsString($result);
+            return $result;
+        });
+        $queryCount = 0;
+        $backend->method('query')->willReturnCallback(static function (string $sql) use (&$queryCount): int {
+            $queryCount++;
+            return 1;
+        });
         $caught = null;
         try {
             $this->strategy($backend)->insert(new InsertIdentifierTable('insert_contract'), ['id' => 7, 'order' => 'value']);
@@ -81,6 +100,7 @@ final class InsertIdentifierContractTest extends BoundFormattingContractCase
             $caught = $failure;
         }
         self::assertSame($original, $caught);
+        self::assertSame(0, $queryCount, 'A column-formatting failure must occur before database execution.');
     }
 
     public function testEmptyDataStillCreatesADefaultRowAndResolvesItsIdentity(): void
