@@ -3,6 +3,7 @@
 namespace PHPNomad\MySql\Integration\Strategies;
 
 use PDOException;
+use PHPNomad\Database\Exceptions\QueryBuilderException;
 use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
 use PHPNomad\MySql\Integration\Connections\PdoConnection;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
@@ -28,6 +29,8 @@ class PdoDatabaseStrategy implements DatabaseStrategy
     /** @inheritDoc */
     public function parse(string $query, ...$args): string
     {
+        $this->assertArgumentCountMatches($query, $args);
+
         $parts = preg_split('/(\?[nsiaup])/', $query, -1, PREG_SPLIT_DELIM_CAPTURE);
         $result = '';
         $index = 0;
@@ -69,6 +72,22 @@ class PdoDatabaseStrategy implements DatabaseStrategy
         }
 
         return $result;
+    }
+
+    /**
+     * @param list<mixed> $args
+     * @throws QueryBuilderException
+     */
+    protected function assertArgumentCountMatches(string $query, array $args): void
+    {
+        $placeholderCount = preg_match_all('/\?[nsiaup]/', $query);
+        $argumentCount = count($args);
+
+        if ($placeholderCount !== $argumentCount) {
+            throw new QueryBuilderException(
+                "Query placeholder count {$placeholderCount} does not match argument count {$argumentCount}."
+            );
+        }
     }
 
     /** @inheritDoc */
