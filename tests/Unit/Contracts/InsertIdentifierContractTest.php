@@ -6,6 +6,7 @@ use Error;
 use PHPNomad\Cache\Interfaces\CachePolicy;
 use PHPNomad\Cache\Interfaces\CacheStrategy;
 use PHPNomad\Cache\Services\CacheableService;
+use PHPNomad\Database\Interfaces\Table;
 use PHPNomad\Database\Services\TableSchemaService;
 use PHPNomad\Events\Interfaces\EventStrategy;
 use PHPNomad\MySql\Integration\Builders\MySqlClauseBuilder;
@@ -118,6 +119,40 @@ final class InsertIdentifierContractTest extends BoundFormattingContractCase
         });
         self::assertSame(['id' => 17], $this->strategy($backend)->insert(new InsertIdentifierTable('insert_contract'), []));
         self::assertSame(['DEFAULT INSERT', 'SELECT LAST_INSERT_ID()'], $queries);
+    }
+
+    public function testInsertPreservesTheIdentityResolverExtension(): void
+    {
+        $timeline = [];
+        $backend = $this->createMock(DatabaseStrategy::class);
+        $backend->method('parse')->willReturn('FORMATTED INSERT');
+        $backend->expects(self::once())->method('query')->with('FORMATTED INSERT')->willReturnCallback(static function () use (&$timeline): int {
+            $timeline[] = 'insert';
+            return 1;
+        });
+        $schema = $this->createMock(TableSchemaService::class);
+        $strategy = new class ($backend, $schema, new MySqlClauseBuilder()) extends QueryStrategy {
+            /** @var list<array{Table, array<string, mixed>}> */
+            public array $identityCalls = [];
+            /** @var list<string> */
+            public array $timeline = [];
+
+            /** @param array<string, mixed> $data
+             * @return array<string, int>
+             */
+            protected function resolveInsertIdentity(Table $table, array $data): array
+            {
+                $this->timeline[] = 'identity';
+                $this->identityCalls[] = [$table, $data];
+                return ['customIdentity' => 91];
+            }
+        };
+        $strategy->timeline = &$timeline;
+        $table = new InsertIdentifierTable('insert_contract');
+        $data = ['id' => 7, 'order' => 'value'];
+        self::assertSame(['customIdentity' => 91], $strategy->insert($table, $data));
+        self::assertSame([[$table, $data]], $strategy->identityCalls);
+        self::assertSame(['insert', 'identity'], $timeline);
     }
 
     private function strategy(DatabaseStrategy $backend): QueryStrategy
