@@ -14,14 +14,14 @@ final class PredicateValidationInternalsTest extends TestCase
     {
         $this->expectException(QueryBuilderException::class);
 
-        (new PredicateValidationProbe())->condition('id', 'UNKNOWN', [7]);
+        $this->probe()->where('id', 'UNKNOWN', 7);
     }
 
     public function testConditionNormalizesAKnownOperator(): void
     {
         $probe = $this->probe();
 
-        $probe->condition('id', 'like', [7]);
+        $probe->where('id', 'like', 7);
 
         self::assertSame(['s.id', 'LIKE', '?s'], $probe->clauseParts());
     }
@@ -81,16 +81,23 @@ final class PredicateValidationInternalsTest extends TestCase
      */
     public function testValuedConditionValuesRetainEveryPosition(string $operator, array $values): void
     {
-        self::assertSame($values, (new PredicateValidationProbe())->conditionValues($operator, $values));
+        $probe = $this->probe();
+
+        $probe->where('id', $operator, ...$values);
+
+        self::assertSame($values, $probe->preparedValues());
     }
 
     /** @dataProvider nullOperators */
     public function testNullOperatorsNormalizeTheirCompatibilityNull(string $operator): void
     {
-        $probe = new PredicateValidationProbe();
+        $probe = $this->probe();
 
-        self::assertSame([], $probe->conditionValues($operator, []));
-        self::assertSame([], $probe->conditionValues($operator, [null]));
+        $probe->where('id', $operator);
+        self::assertSame([], $probe->preparedValues());
+
+        $probe->reset()->where('id', $operator, null);
+        self::assertSame([], $probe->preparedValues());
     }
 
     /**
@@ -101,7 +108,7 @@ final class PredicateValidationInternalsTest extends TestCase
     {
         $this->expectException(QueryBuilderException::class);
 
-        (new PredicateValidationProbe())->conditionValues($operator, $values);
+        $this->probe()->where('id', $operator, ...$values);
     }
 
     /** @dataProvider validGroupLogic */
@@ -207,24 +214,9 @@ final class PredicateValidationProbe extends MySqlClauseBuilder
         return $this->getFieldString($field);
     }
 
-    /** @param list<mixed> $values */
-    public function condition(string $field, string $operator, array $values): self
-    {
-        return $this->addCondition($field, $operator, $values);
-    }
-
     public function placeholder(string $operator): string
     {
         return $this->generatePlaceholder('id', [7, 9], $operator);
-    }
-
-    /**
-     * @param list<mixed> $values
-     * @return list<mixed>
-     */
-    public function conditionValues(string $operator, array $values): array
-    {
-        return $this->normalizeConditionValues($operator, $values);
     }
 
     public function groupLogic(string $logic): string
@@ -236,5 +228,11 @@ final class PredicateValidationProbe extends MySqlClauseBuilder
     public function clauseParts(): array
     {
         return $this->clauses;
+    }
+
+    /** @return list<mixed> */
+    public function preparedValues(): array
+    {
+        return $this->preparedValues;
     }
 }

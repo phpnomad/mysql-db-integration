@@ -78,7 +78,7 @@ class PdoDatabaseStrategy implements DatabaseStrategy
      * @param array<array-key, mixed> $args
      * @throws QueryBuilderException
      */
-    protected function assertArgumentCountMatches(string $query, array $args): void
+    private function assertArgumentCountMatches(string $query, array $args): void
     {
         $placeholderCount = preg_match_all('/\?[nsiaup]/', $query);
         $argumentCount = count($args);

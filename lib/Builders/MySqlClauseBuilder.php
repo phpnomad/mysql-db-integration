@@ -307,7 +307,7 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
      * @return list<mixed>
      * @throws QueryBuilderException
      */
-    protected function normalizeConditionValues(string $operator, array $values): array
+    private function normalizeConditionValues(string $operator, array $values): array
     {
         $count = count($values);
 
