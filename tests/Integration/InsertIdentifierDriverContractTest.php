@@ -55,6 +55,7 @@ final class InsertIdentifierDriverContractTest extends TestCase
             try {
                 $strategy->insert($table, [$key => 'ignored']);
             } catch (DatastoreErrorException $failure) {
+                // The database rejection is the expected assertion subject.
                 $caught = $failure;
             }
             self::assertInstanceOf(DatastoreErrorException::class, $caught);

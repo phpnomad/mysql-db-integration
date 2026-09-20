@@ -97,6 +97,7 @@ final class InsertIdentifierContractTest extends BoundFormattingContractCase
         try {
             $this->strategy($backend)->insert(new InsertIdentifierTable('insert_contract'), ['id' => 7, 'order' => 'value']);
         } catch (Throwable $failure) {
+            // The injected failure is the expected assertion subject, not a recovered operation.
             $caught = $failure;
         }
         self::assertSame($original, $caught);
