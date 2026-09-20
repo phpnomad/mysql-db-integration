@@ -19,12 +19,7 @@ use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\OwnedPdoCoordinationCo
 use RuntimeException;
 use Throwable;
 
-/**
- * Guards the reporting transport contract in https://navigator.novatori.us/r/source/9935.
- * The former adapter discarded a logger failure to preserve the database failure. These
- * cases require both exact failures to escape after database outcome classification and
- * owned-resource cleanup have completed.
- */
+/** Guards the reporting transport contract in https://navigator.novatori.us/r/source/9935. */
 final class PdoCoordinationReportingFailureContractTest extends OwnedPdoCoordinationContractCase
 {
     /** @dataProvider loggerFailures */
@@ -32,8 +27,6 @@ final class PdoCoordinationReportingFailureContractTest extends OwnedPdoCoordina
         string $position,
         bool $reportingIsError
     ): void {
-        $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
-        // @phpstan-ignore deadCode.unreachable
         $reporting = $this->failLogger($position, $reportingIsError);
         $operation = new InvalidArgumentException('Exact validation refusal.');
         $descriptor = $this->createMock(Table::class);
@@ -72,8 +65,6 @@ final class PdoCoordinationReportingFailureContractTest extends OwnedPdoCoordina
         string $position,
         bool $reportingIsError
     ): void {
-        $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
-        // @phpstan-ignore deadCode.unreachable
         $reporting = $this->failLogger($position, $reportingIsError);
         $operation = new RuntimeException('Exact callback failure.');
         $calls = 0;
@@ -101,8 +92,6 @@ final class PdoCoordinationReportingFailureContractTest extends OwnedPdoCoordina
         string $position,
         bool $reportingIsError
     ): void {
-        $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
-        // @phpstan-ignore deadCode.unreachable
         $pdo = $this->connect(InactiveQueryRollbackPdo::class);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $this->usePrimary($pdo);
@@ -151,8 +140,6 @@ final class PdoCoordinationReportingFailureContractTest extends OwnedPdoCoordina
         string $position,
         bool $reportingIsError
     ): void {
-        $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
-        // @phpstan-ignore deadCode.unreachable
         $pdo = $this->connect(OutcomeFaultPdo::class);
         $pdo->faultAt = 'commit';
         $pdo->afterOperation = true;
@@ -194,8 +181,6 @@ final class PdoCoordinationReportingFailureContractTest extends OwnedPdoCoordina
         string $position,
         bool $reportingIsError
     ): void {
-        $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
-        // @phpstan-ignore deadCode.unreachable
         $pdo = $this->connect(OutcomeFaultPdo::class);
         $pdo->faultAt = 'rollback';
         $pdo->afterOperation = true;
@@ -276,7 +261,6 @@ final class PdoCoordinationReportingFailureContractTest extends OwnedPdoCoordina
     }
 
     /** @param callable(): void $operation */
-    // @phpstan-ignore method.unused
     private function captureReportingFailure(callable $operation): CoordinatedOperationReportingFailedException
     {
         try {
@@ -291,7 +275,6 @@ final class PdoCoordinationReportingFailureContractTest extends OwnedPdoCoordina
      * @param list<string>|null $tables
      * @param array{phase:string, causeClass:class-string, sqlState:?string, driverCode:?int}|null $priorFailure
      */
-    // @phpstan-ignore method.unused
     private function assertReportingAttempt(
         string $position,
         string $phase,

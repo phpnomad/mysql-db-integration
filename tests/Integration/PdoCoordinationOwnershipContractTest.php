@@ -2,13 +2,16 @@
 
 namespace PHPNomad\MySql\Integration\Tests\Integration;
 
+use Closure;
 use PDO;
 use PDOException;
 use PHPNomad\Database\Exceptions\CoordinatedOperationCleanupFailedException;
 use PHPNomad\Database\Exceptions\CoordinatedOperationConflictException;
-use PHPNomad\Database\Interfaces\Table;
 use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
+use PHPNomad\Logger\Interfaces\LoggerStrategy;
+use PHPNomad\MySql\Integration\Connections\PdoConnection;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
+use PHPNomad\MySql\Integration\Strategies\PdoCoordinatedDatabaseStrategy;
 use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\InactiveCoordinationRollbackPdo;
 use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\InactiveQueryRollbackPdo;
 use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\OwnedPdoCoordinationContractCase;
@@ -55,25 +58,17 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
         $pdo = $this->connect(InactiveCoordinationRollbackPdo::class);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, $mode);
         $pdo->requireOwnedEntry = false;
-        $this->usePrimary($pdo);
-        $name = $this->parents->getName();
-        $descriptorCalls = 0;
-        $descriptor = $this->createMock(Table::class);
-        $descriptor->method('getFieldsForIdentity')->willReturn(['tenantId', 'id']);
-        $descriptor->method('getName')->willReturnCallback(function () use ($name, &$descriptorCalls, $pdo, $boundary): string {
-            if ($this->primary->inTransaction()) {
-                $descriptorCalls++;
-                $this->primary->exec('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 99)');
-                $this->primary->commit();
-                $pdo->arm($boundary, $this->effects->getName());
-            }
-            return $name;
+        $hookCalls = 0;
+        $this->useParticipantValidationHook($pdo, function () use (&$hookCalls, $pdo, $boundary): void {
+            $hookCalls++;
+            $this->primary->exec('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 99)');
+            $this->primary->commit();
+            $pdo->arm($boundary, $this->effects->getName());
         });
         $calls = 0;
         $caught = null;
         try {
-            $this->strategy->coordinate($descriptor, ['tenantId' => 1, 'id' => 7], [$this->parents, $this->effects],
-                static function () use (&$calls): void { $calls++; });
+            $this->coordinate(static function () use (&$calls): void { $calls++; });
         } catch (Throwable $failure) {
             $caught = $failure;
         }
@@ -81,7 +76,7 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
         self::assertNotInstanceOf(CoordinatedOperationConflictException::class, $caught);
         $original = $caught->getOperationFailure();
         self::assertInstanceOf(DatastoreErrorException::class, $caught->getPrevious());
-        self::assertSame(1, $descriptorCalls, 'The descriptor must create the committed ownership-loss hazard.');
+        self::assertSame(1, $hookCalls, 'Participant validation must create the committed ownership-loss hazard.');
         self::assertSame(0, $calls);
         self::assertFalse($pdo->inTransaction());
         self::assertSame([['id' => '1', 'score' => '99']], $this->visibleEffects());
@@ -130,24 +125,17 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
         self::assertSame([], $this->visibleEffects());
         $this->assertFailureLog('coordination', 'rolled_back', true, PDOException::class, '40001', 1213);
         $this->logger->entries = [];
-        $name = $this->parents->getName();
-        $descriptorCalls = 0;
-        $descriptor = $this->createMock(Table::class);
-        $descriptor->method('getFieldsForIdentity')->willReturn(['tenantId', 'id']);
-        $descriptor->method('getName')->willReturnCallback(function () use ($name, $original, &$descriptorCalls): string {
-            if ($this->primary->inTransaction()) {
-                $descriptorCalls++;
-                $this->primary->exec('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 99)');
-                $this->primary->commit();
-                throw $original;
-            }
-            return $name;
+        $hookCalls = 0;
+        $this->useParticipantValidationHook($pdo, function () use ($original, &$hookCalls): void {
+            $hookCalls++;
+            $this->primary->exec('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 99)');
+            $this->primary->commit();
+            throw $original;
         });
         $secondCalls = 0;
         $caught = null;
         try {
-            $this->strategy->coordinate($descriptor, ['tenantId' => 1, 'id' => 7], [$this->parents, $this->effects],
-                static function () use (&$secondCalls): void { $secondCalls++; });
+            $this->coordinate(static function () use (&$secondCalls): void { $secondCalls++; });
         } catch (Throwable $failure) {
             $caught = $failure;
         }
@@ -155,7 +143,7 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
         self::assertNotInstanceOf(CoordinatedOperationConflictException::class, $caught);
         self::assertSame($original, $caught->getOperationFailure());
         self::assertInstanceOf(DatastoreErrorException::class, $caught->getPrevious());
-        self::assertSame(1, $descriptorCalls);
+        self::assertSame(1, $hookCalls);
         self::assertSame(0, $secondCalls);
         self::assertSame(1, $pdo->injectedFailures);
         self::assertFalse($pdo->inTransaction());
@@ -166,27 +154,20 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
     }
 
     /** @dataProvider allOwnershipLoss */
-    public function testCoordinationPhaseAloneCannotAuthorizeADeadlockShapedDescriptorFailure(string $action): void
+    public function testCoordinationPhaseAloneCannotAuthorizeADeadlockShapedValidationFailure(string $action): void
     {
         $original = $this->deadlockShapedFailure();
-        $name = $this->parents->getName();
-        $descriptorCalls = 0;
-        $descriptor = $this->createMock(Table::class);
-        $descriptor->method('getFieldsForIdentity')->willReturn(['tenantId', 'id']);
-        $descriptor->method('getName')->willReturnCallback(function () use ($name, $action, $original, &$descriptorCalls): string {
-            if ($this->primary->inTransaction()) {
-                $descriptorCalls++;
-                $this->primary->exec('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 12)');
-                $this->endOwnership($action);
-                throw $original;
-            }
-            return $name;
+        $hookCalls = 0;
+        $this->useParticipantValidationHook($this->primary, function () use ($action, $original, &$hookCalls): void {
+            $hookCalls++;
+            $this->primary->exec('INSERT INTO `' . $this->effects->getName() . '` VALUES (1, 12)');
+            $this->endOwnership($action);
+            throw $original;
         });
         $calls = 0;
         $caught = null;
         try {
-            $this->strategy->coordinate($descriptor, ['tenantId' => 1, 'id' => 7], [$this->parents, $this->effects],
-                static function () use (&$calls): void { $calls++; });
+            $this->coordinate(static function () use (&$calls): void { $calls++; });
         } catch (Throwable $failure) {
             $caught = $failure;
         }
@@ -194,7 +175,7 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
         self::assertNotInstanceOf(CoordinatedOperationConflictException::class, $caught);
         self::assertSame($original, $caught->getOperationFailure());
         self::assertInstanceOf(DatastoreErrorException::class, $caught->getPrevious());
-        self::assertSame(1, $descriptorCalls);
+        self::assertSame(1, $hookCalls);
         self::assertSame(0, $calls);
         self::assertFalse($this->primary->inTransaction());
         self::assertSame($action === 'rollback' ? [] : [['id' => '1', 'score' => '12']], $this->visibleEffects());
@@ -437,6 +418,16 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
         self::assertSame($action === 'rollback' ? [] : [['id' => '1', 'score' => '12']], $this->visibleEffects());
     }
 
+    private function useParticipantValidationHook(PDO $pdo, Closure $hook): void
+    {
+        $this->primary = $pdo;
+        $this->strategy = new ParticipantValidationHookStrategy(
+            PdoConnection::fromPdo($pdo),
+            $this->logger,
+            $hook
+        );
+    }
+
     private function endOwnership(string $action): void
     {
         if ($action === 'rollback') {
@@ -504,5 +495,30 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
             'execute exception' => ['execute', PDO::ERRMODE_EXCEPTION],
             'execute silent' => ['execute', PDO::ERRMODE_SILENT],
         ];
+    }
+}
+
+final class ParticipantValidationHookStrategy extends PdoCoordinatedDatabaseStrategy
+{
+    public function __construct(
+        PdoConnection $connection,
+        LoggerStrategy $logger,
+        private Closure $beforeValidation
+    ) {
+        parent::__construct($connection, $logger);
+    }
+
+    /**
+     * @param non-empty-list<array{table: \PHPNomad\Database\Interfaces\Table, name: string}> $definitions
+     * @param non-empty-list<string> $coordinationIdentity
+     */
+    protected function validateParticipants(
+        PDO $pdo,
+        string $schema,
+        array $definitions,
+        array $coordinationIdentity
+    ): void {
+        ($this->beforeValidation)();
+        parent::validateParticipants($pdo, $schema, $definitions, $coordinationIdentity);
     }
 }

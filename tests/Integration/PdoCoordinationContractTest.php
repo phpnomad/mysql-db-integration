@@ -8,9 +8,13 @@ use PDO;
 use PDOException;
 use PHPNomad\Database\Exceptions\CoordinatedOperationReportingFailedException;
 use PHPNomad\Database\Exceptions\UnsupportedCoordinationException;
+use PHPNomad\Database\Interfaces\Table;
 use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
 use PHPNomad\Datastore\Exceptions\RecordNotFoundException;
+use PHPNomad\Logger\Interfaces\LoggerStrategy;
+use PHPNomad\MySql\Integration\Connections\PdoConnection;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
+use PHPNomad\MySql\Integration\Strategies\PdoCoordinatedDatabaseStrategy;
 use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\CoordinationTable;
 use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\OwnedPdoCoordinationContractCase;
 use RuntimeException;
@@ -349,7 +353,7 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         $this->assertFailureLog('coordination', 'rolled_back', false, UnsupportedCoordinationException::class);
     }
 
-    public function testAnInaccurateIdentityDescriptorCannotAuthorizeAPartialPrimaryKey(): void
+    public function testAnIncompleteSuppliedIdentityCannotAuthorizeAPartialPrimaryKey(): void
     {
         $inaccurate = new CoordinationTable($this->parents->getName(), ['id']);
         $calls = 0;
@@ -363,6 +367,55 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
 
         self::assertSame([], $this->visibleEffects());
         self::assertFalse($this->primary->inTransaction());
+        $this->assertFailureLog('validation', 'unchanged', false, InvalidArgumentException::class);
+    }
+
+    public function testParticipantAdmissionUsesStableStorageMetadataInsteadOfDescriptorIdentityCallbacks(): void
+    {
+        $descriptor = $this->createMock(Table::class);
+        $descriptor->expects(self::once())->method('getName')->willReturn($this->parents->getName());
+        $descriptor->expects(self::never())->method('getFieldsForIdentity');
+        $effectDescriptor = $this->createMock(Table::class);
+        $effectDescriptor->expects(self::once())->method('getName')->willReturn($this->effects->getName());
+        $effectDescriptor->expects(self::never())->method('getFieldsForIdentity');
+        $calls = 0;
+
+        $result = $this->strategy->coordinate(
+            $descriptor,
+            ['tenantId' => 1, 'id' => 7],
+            [$descriptor, $effectDescriptor],
+            static function () use (&$calls): string {
+                $calls++;
+                return 'coordinated';
+            }
+        );
+
+        self::assertSame('coordinated', $result);
+        self::assertSame(1, $calls);
+        self::assertSame([], $this->logger->entries);
+    }
+
+    public function testPreflightIdentityMetadataIsRecheckedAfterTheRecordGuard(): void
+    {
+        $this->strategy = new ChangedPrimaryMetadataStrategy(
+            PdoConnection::fromPdo($this->primary),
+            $this->logger,
+            $this->parents->getName()
+        );
+        $calls = 0;
+
+        try {
+            $this->coordinate(static function () use (&$calls): void {
+                $calls++;
+            });
+            self::fail('Changed primary metadata must refuse the operation before the callback.');
+        } catch (InvalidArgumentException $failure) {
+            self::assertSame('The coordination identity must match the stable primary key.', $failure->getMessage());
+        }
+
+        self::assertSame(0, $calls);
+        self::assertFalse($this->primary->inTransaction());
+        self::assertSame([], $this->visibleEffects());
         $this->assertFailureLog('coordination', 'rolled_back', false, InvalidArgumentException::class);
     }
 
@@ -550,14 +603,9 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         }
     }
 
-    /**
-     * Regression contract for https://navigator.novatori.us/r/source/9935.
-     * The logger failure must become visible without replacing the exact callback failure.
-     */
+    /** The logger failure remains visible without replacing the exact callback failure. */
     public function testLoggerFailureSurfacesWithoutReplacingTheConfirmedRollbackFailure(): void
     {
-        $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
-        // @phpstan-ignore deadCode.unreachable
         $this->logger->throwOnWrite = true;
         $reporting = new RuntimeException('Exact logger transport failure.');
         $this->logger->transportFailure = $reporting;
@@ -647,7 +695,8 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         }
         self::assertSame([], $this->visibleEffects());
         self::assertFalse($this->primary->inTransaction());
-        $this->assertFailureLog('coordination', 'rolled_back', false, UnsupportedCoordinationException::class,
+        $validationRefusal = $position === 0 && $hazard === 'view';
+        $this->assertFailureLog($validationRefusal ? 'validation' : 'coordination', $validationRefusal ? 'unchanged' : 'rolled_back', false, UnsupportedCoordinationException::class,
             null, null, array_map(static fn (CoordinationTable $table): string => $table->getName(), $participants));
     }
 
@@ -731,4 +780,25 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         ];
     }
 
+}
+
+final class ChangedPrimaryMetadataStrategy extends PdoCoordinatedDatabaseStrategy
+{
+    private int $coordinationReads = 0;
+
+    public function __construct(PdoConnection $connection, LoggerStrategy $logger, private string $coordinationTable)
+    {
+        parent::__construct($connection, $logger);
+    }
+
+    /** @return list<string> */
+    protected function readPrimaryFields(PDO $pdo, string $schema, string $table): array
+    {
+        $fields = parent::readPrimaryFields($pdo, $schema, $table);
+        if ($table === $this->coordinationTable && ++$this->coordinationReads === 2) {
+            return array_reverse($fields);
+        }
+
+        return $fields;
+    }
 }

@@ -9,6 +9,7 @@ use PDOStatement;
 use PHPNomad\Database\Exceptions\CoordinatedOperationCleanupFailedException;
 use PHPNomad\Database\Exceptions\CoordinatedOperationConflictException;
 use PHPNomad\Database\Exceptions\CoordinatedOperationOutcomeUnknownException;
+use PHPNomad\Database\Exceptions\CoordinatedOperationReportingFailedException;
 use PHPNomad\Database\Exceptions\UnsupportedCoordinationException;
 use PHPNomad\Database\Interfaces\Table;
 use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
@@ -26,6 +27,10 @@ use Throwable;
  * capability until the application creates a fresh PDO and strategy.
  * Historical privilege changes cannot be detected from current grant metadata.
  * Refusal covers unsupported conditions observable on an eligible connection.
+ * Participant descriptors supply names only. Primary-key admission comes from
+ * storage metadata and the coordination key is rechecked after its row guard.
+ * Coordination requires MySQL 8 role and session metadata. Older servers are
+ * refused before the adapter starts a transaction or invokes the callback.
  */
 class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements CoordinatedDatabaseStrategy
 {
@@ -51,16 +56,14 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
         $tableNames = [];
 
         try {
-            foreach ($participants as $participant) {
-                if ($participant instanceof Table) {
-                    $tableNames[] = $participant->getName();
-                }
-            }
-
-            $definitions = $this->validateRequest($coordinationTable, $identity, $participants);
+            $definitions = $this->validateRequest($coordinationTable, $identity, $participants, $tableNames);
             $pdo = $this->connection->pdo();
             $schema = $this->validateSession($pdo);
             $this->validateTriggerVisibility($pdo, $schema, $tableNames);
+            $coordinationIdentity = $this->validateCompleteIdentity(
+                $this->readPrimaryFields($pdo, $schema, $definitions[0]['name']),
+                $identity
+            );
         } catch (Throwable $failure) {
             $this->reportFailure('validation', $tableNames, 'unchanged', false, $failure);
             throw $failure;
@@ -79,8 +82,8 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
 
         try {
             try {
-                $this->guardCoordinationRecord($pdo, $coordinationTable->getName(), $definitions[0]['identity'], $identity);
-                $this->validateParticipants($pdo, $schema, $definitions);
+                $this->guardCoordinationRecord($pdo, $definitions[0]['name'], $coordinationIdentity, $identity);
+                $this->validateParticipants($pdo, $schema, $definitions, $coordinationIdentity);
             } catch (Throwable $failure) {
                 $this->abortAttempt($pdo, 'coordination', $tableNames, $failure);
             }
@@ -92,13 +95,14 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
             }
 
             if (!$pdo->inTransaction()) {
-                $failure = new DatastoreErrorException('The coordinated operation lost transaction ownership.');
-                $this->reportFailure('commit', $tableNames, 'unknown', false, $failure);
-                throw new CoordinatedOperationOutcomeUnknownException(
+                $cause = new DatastoreErrorException('The coordinated operation lost transaction ownership.');
+                $failure = new CoordinatedOperationOutcomeUnknownException(
                     'The coordinated database operation outcome is unknown.',
                     0,
-                    $failure
+                    $cause
                 );
+                $this->reportFailure('commit', $tableNames, 'unknown', false, $failure, $cause);
+                throw $failure;
             }
 
             try {
@@ -136,63 +140,75 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
     /**
      * @param array<array-key, mixed> $identity
      * @param array<array-key, mixed> $participants
-     * @return non-empty-list<array{table: Table, name: string, identity: non-empty-list<string>}>
+     * @param list<string> $tableNames
+     * @return non-empty-list<array{table: Table, name: string}>
      */
-    protected function validateRequest(Table $coordinationTable, array $identity, array $participants): array
+    protected function validateRequest(
+        Table $coordinationTable,
+        array $identity,
+        array $participants,
+        array &$tableNames
+    ): array
     {
+        $definitionsByIndex = [];
+        foreach ($participants as $index => $participant) {
+            if ($participant instanceof Table) {
+                $name = $participant->getName();
+                $tableNames[] = $name;
+                $definitionsByIndex[$index] = ['table' => $participant, 'name' => $name];
+            }
+        }
+
         if ($participants === [] || !array_is_list($participants)) {
             throw new InvalidArgumentException('Participants must be a nonempty list of tables.');
         }
 
-        $definitions = [];
-        foreach ($participants as $participant) {
+        foreach ($participants as $index => $participant) {
             if (!$participant instanceof Table) {
                 throw new InvalidArgumentException('Every participant must be a table descriptor.');
             }
 
-            $name = $participant->getName();
+            $name = $definitionsByIndex[$index]['name'];
             if (!$this->isValidIdentifier($name)) {
                 throw new InvalidArgumentException('Every participant must have a valid table name.');
             }
-
-            $validatedFields = $this->validateIdentityFields($participant->getFieldsForIdentity());
-
-            $definitions[] = ['table' => $participant, 'name' => $name, 'identity' => $validatedFields];
         }
 
-        $coordinationName = $coordinationTable->getName();
+        $definitions = array_values($definitionsByIndex);
+
         $coordinationIndex = null;
         foreach ($definitions as $index => $definition) {
-            if ($definition['name'] === $coordinationName) {
+            if ($definition['table'] === $coordinationTable) {
                 $coordinationIndex = $index;
                 break;
             }
         }
         if ($coordinationIndex === null) {
+            $coordinationName = $coordinationTable->getName();
+            foreach ($definitions as $index => $definition) {
+                if ($definition['name'] === $coordinationName) {
+                    $coordinationIndex = $index;
+                    break;
+                }
+            }
+        }
+        if ($coordinationIndex === null) {
             throw new InvalidArgumentException('The coordination table must be a participant.');
         }
-        $coordinationDefinition = $definitions[$coordinationIndex];
-
-        $coordinationFields = $this->validateIdentityFields($coordinationTable->getFieldsForIdentity());
-        if ($coordinationFields !== $coordinationDefinition['identity']) {
-            throw new InvalidArgumentException('The coordination table must describe one complete primary identity.');
-        }
-
         $identityKeys = array_keys($identity);
-        if (
-            count($identityKeys) !== count($coordinationFields)
-            || array_diff($coordinationFields, $identityKeys) !== []
-            || array_diff($identityKeys, $coordinationFields) !== []
-        ) {
-            throw new InvalidArgumentException('The coordination identity must contain every primary field exactly once.');
+        if ($identityKeys === []) {
+            throw new InvalidArgumentException('The coordination identity must be nonempty.');
         }
-        foreach ($coordinationFields as $field) {
+        foreach ($identityKeys as $field) {
+            if (!is_string($field) || !$this->isValidIdentifier($field)) {
+                throw new InvalidArgumentException('Coordination identity fields must be valid names.');
+            }
             if (!is_int($identity[$field]) && !is_string($identity[$field])) {
                 throw new InvalidArgumentException('Coordination identity values must be integers or strings.');
             }
         }
 
-        $ordered = [$coordinationDefinition];
+        $ordered = [$definitions[$coordinationIndex]];
         array_splice($definitions, $coordinationIndex, 1);
         array_push($ordered, ...$definitions);
 
@@ -200,24 +216,25 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
     }
 
     /**
-     * @param array<array-key, mixed> $fields
+     * @param list<string> $primaryFields
+     * @param array<array-key, mixed> $identity
      * @return non-empty-list<string>
      */
-    protected function validateIdentityFields(array $fields): array
+    protected function validateCompleteIdentity(array $primaryFields, array $identity): array
     {
-        if ($fields === [] || !array_is_list($fields)) {
-            throw new InvalidArgumentException('Every participant must describe a nonempty primary identity.');
+        $identityFields = array_keys($identity);
+        if ($primaryFields === []) {
+            throw new UnsupportedCoordinationException('The coordination resource must have a primary key.');
+        }
+        if (
+            count($identityFields) !== count($primaryFields)
+            || array_diff($primaryFields, $identityFields) !== []
+            || array_diff($identityFields, $primaryFields) !== []
+        ) {
+            throw new InvalidArgumentException('The coordination identity must contain every primary field exactly once.');
         }
 
-        $validated = [];
-        foreach ($fields as $field) {
-            if (!is_string($field) || !$this->isValidIdentifier($field) || in_array($field, $validated, true)) {
-                throw new InvalidArgumentException('Every participant identity must contain unique valid field names.');
-            }
-            $validated[] = $field;
-        }
-
-        return $validated;
+        return $primaryFields;
     }
 
     protected function validateSession(PDO $pdo): string
@@ -227,6 +244,12 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
         }
         if ($pdo->getAttribute(PDO::ATTR_ERRMODE) === PDO::ERRMODE_WARNING) {
             throw new UnsupportedCoordinationException('PDO warning mode is unsupported for coordination.');
+        }
+
+        $versionStatement = $this->queryStatement($pdo, 'SELECT VERSION()');
+        $serverVersion = $versionStatement->fetchColumn();
+        if (!is_string($serverVersion) || version_compare($serverVersion, '8.0.0', '<')) {
+            throw new UnsupportedCoordinationException('This database version is unsupported for coordination.');
         }
 
         $statement = $this->queryStatement(
@@ -333,11 +356,17 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
     }
 
     /**
-     * @param non-empty-list<array{table: Table, name: string, identity: non-empty-list<string>}> $definitions
+     * @param non-empty-list<array{table: Table, name: string}> $definitions
+     * @param non-empty-list<string> $coordinationIdentity
      */
-    protected function validateParticipants(PDO $pdo, string $schema, array $definitions): void
+    protected function validateParticipants(
+        PDO $pdo,
+        string $schema,
+        array $definitions,
+        array $coordinationIdentity
+    ): void
     {
-        foreach ($definitions as $definition) {
+        foreach ($definitions as $index => $definition) {
             $create = $this->readCreateDefinition($pdo, $definition['name']);
             if ($create['temporary'] || $create['view']) {
                 throw new UnsupportedCoordinationException('Temporary tables and views are unsupported participants.');
@@ -367,16 +396,12 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
                 throw new UnsupportedCoordinationException('Every participant must be an InnoDB base table.');
             }
 
-            $primaryStatement = $this->prepareStatement(
-                $pdo,
-                "SELECT COLUMN_NAME FROM information_schema.STATISTICS
-                    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = 'PRIMARY'
-                    ORDER BY SEQ_IN_INDEX"
-            );
-            $this->executeStatement($primaryStatement, [$schema, $definition['name']]);
-            $primaryFields = $primaryStatement->fetchAll(PDO::FETCH_COLUMN);
-            if ($primaryFields !== $definition['identity']) {
-                throw new InvalidArgumentException('A participant descriptor does not match its complete primary key.');
+            $primaryFields = $this->readPrimaryFields($pdo, $schema, $definition['name']);
+            if ($primaryFields === []) {
+                throw new UnsupportedCoordinationException('Every participant must have a primary key.');
+            }
+            if ($index === 0 && $primaryFields !== $coordinationIdentity) {
+                throw new InvalidArgumentException('The coordination identity must match the stable primary key.');
             }
 
             $triggerStatement = $this->prepareStatement(
@@ -388,6 +413,21 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
                 throw new UnsupportedCoordinationException('Trigger-bearing tables are unsupported participants.');
             }
         }
+    }
+
+    /** @return list<string> */
+    protected function readPrimaryFields(PDO $pdo, string $schema, string $table): array
+    {
+        $statement = $this->prepareStatement(
+            $pdo,
+            "SELECT COLUMN_NAME FROM information_schema.STATISTICS
+                WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = 'PRIMARY'
+                ORDER BY SEQ_IN_INDEX"
+        );
+        $this->executeStatement($statement, [$schema, $table]);
+        $fields = $statement->fetchAll(PDO::FETCH_COLUMN);
+
+        return array_values(array_filter($fields, 'is_string'));
     }
 
     /** @return array{temporary: bool, view: bool} */
@@ -412,12 +452,13 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
     {
         if (!$pdo->inTransaction()) {
             if ($this->hasInactiveAbortEvidence($failure) && $this->isDeadlockFailure($failure)) {
-                $this->reportFailure($phase, $tables, 'rolled_back', true, $failure);
-                throw new CoordinatedOperationConflictException(
+                $operationFailure = new CoordinatedOperationConflictException(
                     'The coordinated database operation conflicted.',
                     0,
                     $failure
                 );
+                $this->reportFailure($phase, $tables, 'rolled_back', true, $operationFailure, $failure);
+                throw $operationFailure;
             }
             $cleanup = new DatastoreErrorException('Transaction ownership was lost before rollback.');
             $this->throwCleanupFailure($tables, $phase, $failure, $cleanup);
@@ -432,28 +473,30 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
         }
 
         $retryable = $this->isContentionFailure($failure);
-        $this->reportFailure($phase, $tables, 'rolled_back', $retryable, $failure);
+        $operationFailure = $failure;
         if ($retryable) {
-            throw new CoordinatedOperationConflictException(
+            $operationFailure = new CoordinatedOperationConflictException(
                 'The coordinated database operation conflicted.',
                 0,
                 $failure
             );
         }
+        $this->reportFailure($phase, $tables, 'rolled_back', $retryable, $operationFailure, $failure);
 
-        throw $failure;
+        throw $operationFailure;
     }
 
     /** @param list<string> $tables */
     protected function handleCommitFailure(PDO $pdo, array $tables, Throwable $failure): never
     {
         if (!$pdo->inTransaction()) {
-            $this->reportFailure('commit', $tables, 'unknown', false, $failure);
-            throw new CoordinatedOperationOutcomeUnknownException(
+            $operationFailure = new CoordinatedOperationOutcomeUnknownException(
                 'The coordinated database operation outcome is unknown.',
                 0,
                 $failure
             );
+            $this->reportFailure('commit', $tables, 'unknown', false, $operationFailure, $failure);
+            throw $operationFailure;
         }
 
         try {
@@ -464,8 +507,9 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
             $this->throwCleanupFailure($tables, 'commit', $failure, $cleanup);
         }
 
-        $this->reportFailure('commit', $tables, 'rolled_back', false, $failure);
-        throw new DatastoreErrorException('The coordinated database commit failed.', 0, $failure);
+        $operationFailure = new DatastoreErrorException('The coordinated database commit failed.', 0, $failure);
+        $this->reportFailure('commit', $tables, 'rolled_back', false, $operationFailure, $failure);
+        throw $operationFailure;
     }
 
     /** @param list<string> $tables */
@@ -475,15 +519,17 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
         Throwable $operationFailure,
         Throwable $cleanupFailure
     ): never {
+        $failure = new CoordinatedOperationCleanupFailedException($operationFailure, $cleanupFailure);
         $this->reportFailure(
             'rollback',
             $tables,
             'unknown',
             false,
+            $failure,
             $cleanupFailure,
             $this->failureDetails($operationPhase, $operationFailure)
         );
-        throw new CoordinatedOperationCleanupFailedException($operationFailure, $cleanupFailure);
+        throw $failure;
     }
 
     /**
@@ -495,9 +541,11 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
         array $tables,
         string $outcome,
         bool $retryable,
-        Throwable $failure,
+        Throwable $operationFailure,
+        ?Throwable $logFailure = null,
         ?array $priorFailure = null
     ): void {
+        $failure = $logFailure ?? $operationFailure;
         $driver = $this->driverDetails($failure);
         $context = [
             'phase' => $phase,
@@ -514,8 +562,8 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
 
         try {
             $this->logger->error('Coordinated database operation failed.', $context);
-        } catch (Throwable) {
-            // The database outcome and its retained causes take precedence over a broken log transport.
+        } catch (Throwable $reportingFailure) {
+            throw new CoordinatedOperationReportingFailedException($operationFailure, $reportingFailure);
         }
     }
 

@@ -63,9 +63,6 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
         bool $loggerFails,
         bool $operationIsError
     ): void {
-        if ($loggerFails) {
-            $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
-        }
         $pdo = $this->connect(OutcomeFaultPdo::class);
         $pdo->faultAt = 'rollback';
         $pdo->afterOperation = $afterRollback;
@@ -144,9 +141,6 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
         bool $afterRollback,
         bool $loggerFails
     ): void {
-        if ($loggerFails) {
-            $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
-        }
         $pdo = $this->connect(OutcomeFaultPdo::class);
         $pdo->faultAt = 'commit';
         $pdo->throwFault = $commitThrows;
@@ -195,9 +189,6 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
     /** @dataProvider rollbackFaults */
     public function testCoordinationFailureRemainsInspectableWhenCleanupAlsoFails(bool $afterRollback, bool $throws, bool $loggerFails): void
     {
-        if ($loggerFails) {
-            $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
-        }
         $pdo = $this->connect(OutcomeFaultPdo::class);
         $pdo->faultAt = 'rollback';
         $pdo->afterOperation = $afterRollback;
@@ -242,9 +233,6 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
         bool $loggerFails,
         bool $operationIsError
     ): void {
-        if ($loggerFails) {
-            $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
-        }
         $pdo = $this->connect(OutcomeFaultPdo::class);
         $original = $operationIsError ? new Error('Coordination resource failure') : new RecordNotFoundException('Coordination resource failure');
         $pdo->coordinationFailure = $original;
