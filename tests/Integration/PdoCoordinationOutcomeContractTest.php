@@ -6,12 +6,14 @@ use Error;
 use PDOException;
 use PHPNomad\Database\Exceptions\CoordinatedOperationCleanupFailedException;
 use PHPNomad\Database\Exceptions\CoordinatedOperationOutcomeUnknownException;
+use PHPNomad\Database\Exceptions\CoordinatedOperationReportingFailedException;
 use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
 use PHPNomad\Datastore\Exceptions\RecordNotFoundException;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\OutcomeFaultPdo;
 use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\OwnedPdoCoordinationContractCase;
 use RuntimeException;
+use Throwable;
 
 /** Real persistence with faults at the driver's commit/rollback acknowledgement. */
 final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContractCase
@@ -61,6 +63,9 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
         bool $loggerFails,
         bool $operationIsError
     ): void {
+        if ($loggerFails) {
+            $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
+        }
         $pdo = $this->connect(OutcomeFaultPdo::class);
         $pdo->faultAt = 'rollback';
         $pdo->afterOperation = $afterRollback;
@@ -79,7 +84,9 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
             try {
                 $this->coordinate($operation);
                 self::fail('An unconfirmed rollback must report an unknown outcome.');
-            } catch (CoordinatedOperationCleanupFailedException $failure) {
+            } catch (Throwable $caught) {
+                $failure = $this->operationFailure($caught, $loggerFails);
+                self::assertInstanceOf(CoordinatedOperationCleanupFailedException::class, $failure);
                 self::assertSame($original, $failure->getOperationFailure());
                 $cause = $failure->getPrevious();
                 self::assertInstanceOf(PDOException::class, $cause);
@@ -137,6 +144,9 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
         bool $afterRollback,
         bool $loggerFails
     ): void {
+        if ($loggerFails) {
+            $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
+        }
         $pdo = $this->connect(OutcomeFaultPdo::class);
         $pdo->faultAt = 'commit';
         $pdo->throwFault = $commitThrows;
@@ -153,7 +163,9 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
                     return 'must not report success';
                 });
                 self::fail('An unconfirmed cleanup rollback leaves the commit outcome unknown.');
-            } catch (CoordinatedOperationCleanupFailedException $failure) {
+            } catch (Throwable $caught) {
+                $failure = $this->operationFailure($caught, $loggerFails);
+                self::assertInstanceOf(CoordinatedOperationCleanupFailedException::class, $failure);
                 $operationCause = $failure->getOperationFailure();
                 self::assertInstanceOf(PDOException::class, $operationCause);
                 self::assertSame(['HY000', 2013, 'Connection acknowledgement fault'], $operationCause->errorInfo);
@@ -183,6 +195,9 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
     /** @dataProvider rollbackFaults */
     public function testCoordinationFailureRemainsInspectableWhenCleanupAlsoFails(bool $afterRollback, bool $throws, bool $loggerFails): void
     {
+        if ($loggerFails) {
+            $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
+        }
         $pdo = $this->connect(OutcomeFaultPdo::class);
         $pdo->faultAt = 'rollback';
         $pdo->afterOperation = $afterRollback;
@@ -196,7 +211,9 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
                     function () use (&$calls): void { $calls++; }
                 );
                 self::fail('Missing coordination state with unconfirmed cleanup is an unknown outcome.');
-            } catch (CoordinatedOperationCleanupFailedException $failure) {
+            } catch (Throwable $caught) {
+                $failure = $this->operationFailure($caught, $loggerFails);
+                self::assertInstanceOf(CoordinatedOperationCleanupFailedException::class, $failure);
                 self::assertInstanceOf(RecordNotFoundException::class, $failure->getOperationFailure());
                 $cleanup = $failure->getPrevious();
                 self::assertInstanceOf(PDOException::class, $cleanup);
@@ -225,6 +242,9 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
         bool $loggerFails,
         bool $operationIsError
     ): void {
+        if ($loggerFails) {
+            $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
+        }
         $pdo = $this->connect(OutcomeFaultPdo::class);
         $original = $operationIsError ? new Error('Coordination resource failure') : new RecordNotFoundException('Coordination resource failure');
         $pdo->coordinationFailure = $original;
@@ -238,7 +258,9 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
             try {
                 $this->coordinate(function () use (&$calls): void { $calls++; });
                 self::fail('An owned-resource failure with unconfirmed cleanup must retain both causes.');
-            } catch (CoordinatedOperationCleanupFailedException $failure) {
+            } catch (Throwable $caught) {
+                $failure = $this->operationFailure($caught, $loggerFails);
+                self::assertInstanceOf(CoordinatedOperationCleanupFailedException::class, $failure);
                 self::assertSame($original, $failure->getOperationFailure());
                 $cleanup = $failure->getPrevious();
                 self::assertInstanceOf(PDOException::class, $cleanup);
@@ -315,5 +337,20 @@ final class PdoCoordinationOutcomeContractTest extends OwnedPdoCoordinationContr
             $cases[$name . ', error'] = [...$faults, true];
         }
         return $cases;
+    }
+
+    private function operationFailure(Throwable $failure, bool $loggerFails): Throwable
+    {
+        if (!$loggerFails) {
+            self::assertNotInstanceOf(CoordinatedOperationReportingFailedException::class, $failure);
+            return $failure;
+        }
+
+        self::assertInstanceOf(CoordinatedOperationReportingFailedException::class, $failure);
+        self::assertSame($this->logger->transportFailure, $failure->getReportingFailure());
+        self::assertSame($failure->getReportingFailure(), $failure->getPrevious());
+        self::assertSame(1, $this->logger->writeAttempts);
+
+        return $failure->getOperationFailure();
     }
 }

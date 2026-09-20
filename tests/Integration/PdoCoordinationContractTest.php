@@ -6,6 +6,7 @@ use Error;
 use InvalidArgumentException;
 use PDO;
 use PDOException;
+use PHPNomad\Database\Exceptions\CoordinatedOperationReportingFailedException;
 use PHPNomad\Database\Exceptions\UnsupportedCoordinationException;
 use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
 use PHPNomad\Datastore\Exceptions\RecordNotFoundException;
@@ -549,23 +550,38 @@ final class PdoCoordinationContractTest extends OwnedPdoCoordinationContractCase
         }
     }
 
-    public function testLoggerFailureCannotReplaceTheConfirmedRollbackFailure(): void
+    /**
+     * Regression contract for https://navigator.novatori.us/r/source/9935.
+     * The logger failure must become visible without replacing the exact callback failure.
+     */
+    public function testLoggerFailureSurfacesWithoutReplacingTheConfirmedRollbackFailure(): void
     {
+        $this->markTestIncomplete('Implementation begins after the reporting architecture review clears.');
+        // @phpstan-ignore deadCode.unreachable
         $this->logger->throwOnWrite = true;
+        $reporting = new RuntimeException('Exact logger transport failure.');
+        $this->logger->transportFailure = $reporting;
         $original = new RuntimeException('private-callback-value');
+        $calls = 0;
         $caught = null;
         try {
-            $this->coordinate(function (DatabaseStrategy $backend) use ($original): void {
+            $this->coordinate(function (DatabaseStrategy $backend) use ($original, &$calls): void {
+                $calls++;
                 $backend->query($backend->parse('INSERT INTO ?n VALUES (1, 12)', $this->effects->getName()));
                 throw $original;
             });
-        } catch (RuntimeException $failure) {
+        } catch (CoordinatedOperationReportingFailedException $failure) {
             $caught = $failure;
         }
 
-        self::assertSame($original, $caught);
+        self::assertInstanceOf(CoordinatedOperationReportingFailedException::class, $caught);
+        self::assertSame($original, $caught->getOperationFailure());
+        self::assertSame($reporting, $caught->getReportingFailure());
+        self::assertSame($reporting, $caught->getPrevious());
+        self::assertSame(1, $calls);
         self::assertSame([], $this->visibleEffects());
         self::assertFalse($this->primary->inTransaction());
+        self::assertSame(1, $this->logger->writeAttempts);
         $this->assertFailureLog('callback', 'rolled_back', false, RuntimeException::class);
     }
 

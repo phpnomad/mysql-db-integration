@@ -4,6 +4,8 @@ namespace PHPNomad\MySql\Integration\Tests\Integration\Fixtures;
 
 use Exception;
 use PHPNomad\Logger\Interfaces\LoggerStrategy;
+use RuntimeException;
+use Throwable;
 
 /** Records the adapter's observable logging output without external transport. */
 final class RecordingLogger implements LoggerStrategy
@@ -11,6 +13,9 @@ final class RecordingLogger implements LoggerStrategy
     /** @var list<array{level:string, message:string, context:array<array-key, mixed>}> */
     public array $entries = [];
     public bool $throwOnWrite = false;
+    public bool $throwBeforeWrite = false;
+    public int $writeAttempts = 0;
+    public ?Throwable $transportFailure = null;
 
     public function emergency(string $message, array $context = []): void { $this->record('emergency', $message, $context); }
     public function alert(string $message, array $context = []): void { $this->record('alert', $message, $context); }
@@ -30,9 +35,13 @@ final class RecordingLogger implements LoggerStrategy
     /** @param array<array-key, mixed> $context */
     private function record(string $level, string $message, array $context): void
     {
+        $this->writeAttempts++;
+        if ($this->throwBeforeWrite) {
+            throw $this->transportFailure ??= new RuntimeException('Logger transport failed.');
+        }
         $this->entries[] = ['level' => $level, 'message' => $message, 'context' => $context];
         if ($this->throwOnWrite) {
-            throw new \RuntimeException('Logger transport failed.');
+            throw $this->transportFailure ??= new RuntimeException('Logger transport failed.');
         }
     }
 }

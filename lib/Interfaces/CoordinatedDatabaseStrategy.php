@@ -30,6 +30,7 @@ interface CoordinatedDatabaseStrategy extends DatabaseStrategy
      * @throws \PHPNomad\Database\Exceptions\CoordinatedOperationConflictException Retry-eligible only after whole-attempt rollback.
      * @throws \PHPNomad\Database\Exceptions\CoordinatedOperationOutcomeUnknownException Uncertain outcome, not automatically retryable.
      * @throws \PHPNomad\Database\Exceptions\CoordinatedOperationCleanupFailedException Unconfirmed rollback after an earlier failure, retaining both original causes.
+     * @throws \PHPNomad\Database\Exceptions\CoordinatedOperationReportingFailedException Reporting transport failure, retaining the classified operation failure. Retry classification comes only from the retained operation failure.
      * @throws \PHPNomad\Datastore\Exceptions\RecordNotFoundException
      * @throws \PHPNomad\Datastore\Exceptions\DatastoreErrorException Ordinary query failure, or failed commit followed by confirmed rollback.
      * @throws \Throwable Original callback failure after confirmed rollback.
