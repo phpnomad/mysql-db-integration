@@ -18,11 +18,6 @@ use Throwable;
 /** Ownership loss cannot turn already committed effects into retryable failures. */
 final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationContractCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-    }
-
     /** @dataProvider inactiveCoordinationBoundaries */
     public function testInactiveOwnedCoordinationStatementFailureRemainsRetryEligible(string $boundary, int $mode): void
     {
