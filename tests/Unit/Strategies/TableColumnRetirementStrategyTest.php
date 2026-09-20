@@ -30,7 +30,6 @@ final class TableColumnRetirementStrategyTest extends TestCase
 
     public function testColumnExistsUsesTheActiveSchemaMetadata(): void
     {
-        $this->markTestIncomplete('Implementation follows architecture approval.');
         $db = new RetirementRecordingDatabase(['legacyValue']);
         $strategy = new TableUpdateStrategy($db);
 
@@ -40,7 +39,6 @@ final class TableColumnRetirementStrategyTest extends TestCase
 
     public function testMissingColumnIsReportedAsAbsent(): void
     {
-        $this->markTestIncomplete('Implementation follows architecture approval.');
         $strategy = new TableUpdateStrategy(new RetirementRecordingDatabase(['id']));
 
         self::assertFalse($strategy->columnExists($this->table(), 'legacyValue'));
@@ -48,7 +46,6 @@ final class TableColumnRetirementStrategyTest extends TestCase
 
     public function testMetadataFailureIsNotClassifiedAsAbsence(): void
     {
-        $this->markTestIncomplete('Implementation follows architecture approval.');
         $db = new RetirementRecordingDatabase(['legacyValue']);
         $db->failMetadata = true;
 
@@ -58,7 +55,6 @@ final class TableColumnRetirementStrategyTest extends TestCase
 
     public function testRetirementDropsOnlyTheNamedColumn(): void
     {
-        $this->markTestIncomplete('Implementation follows architecture approval.');
         $db = new RetirementRecordingDatabase(['id', 'legacyValue', 'unrelatedUnknown']);
         (new TableUpdateStrategy($db))->retireColumns($this->table(), 'legacyValue');
 
@@ -69,7 +65,6 @@ final class TableColumnRetirementStrategyTest extends TestCase
 
     public function testAbsentNamedColumnIsAnIdempotentNoOp(): void
     {
-        $this->markTestIncomplete('Implementation follows architecture approval.');
         $db = new RetirementRecordingDatabase(['id', 'unrelatedUnknown']);
         $strategy = new TableUpdateStrategy($db);
 
@@ -81,7 +76,6 @@ final class TableColumnRetirementStrategyTest extends TestCase
 
     public function testEmptyRetirementRequestIsRejectedBeforeDdl(): void
     {
-        $this->markTestIncomplete('Implementation follows architecture approval.');
         $db = new RetirementRecordingDatabase(['legacyValue']);
 
         try {
@@ -95,7 +89,6 @@ final class TableColumnRetirementStrategyTest extends TestCase
     /** @dataProvider invalidColumnNames */
     public function testEmptyOrNulColumnNameIsRejectedBeforeDdl(string $name): void
     {
-        $this->markTestIncomplete('Implementation follows architecture approval.');
         $db = new RetirementRecordingDatabase(['legacyValue']);
 
         try {
@@ -113,7 +106,6 @@ final class TableColumnRetirementStrategyTest extends TestCase
 
     public function testCaseVariantOfDeclaredColumnIsRejectedBeforeDdl(): void
     {
-        $this->markTestIncomplete('Implementation follows architecture approval.');
         $db = new RetirementRecordingDatabase(['id']);
 
         try {
@@ -126,7 +118,6 @@ final class TableColumnRetirementStrategyTest extends TestCase
 
     public function testOneDeclaredNameRejectsTheWholeBatchBeforeDdl(): void
     {
-        $this->markTestIncomplete('Implementation follows architecture approval.');
         $db = new RetirementRecordingDatabase(['id', 'legacyValue']);
 
         try {
@@ -139,7 +130,6 @@ final class TableColumnRetirementStrategyTest extends TestCase
 
     public function testQuotedBackendIdentifiersAreAccepted(): void
     {
-        $this->markTestIncomplete('Implementation follows architecture approval.');
         $db = new RetirementRecordingDatabase(['id', 'legacy value', 'odd`name']);
         (new TableUpdateStrategy($db))->retireColumns($this->table(), 'legacy value', 'odd`name');
 
@@ -150,7 +140,6 @@ final class TableColumnRetirementStrategyTest extends TestCase
 
     public function testIndexedColumnIsRejectedWithoutDdl(): void
     {
-        $this->markTestIncomplete('Implementation follows architecture approval.');
         $db = new RetirementRecordingDatabase(['id', 'legacyValue']);
         $db->indexedColumns = ['legacyValue'];
 
@@ -164,7 +153,6 @@ final class TableColumnRetirementStrategyTest extends TestCase
 
     public function testForeignKeyColumnIsRejectedWithoutDdl(): void
     {
-        $this->markTestIncomplete('Implementation follows architecture approval.');
         $db = new RetirementRecordingDatabase(['id', 'legacyValue']);
         $db->foreignKeyColumns = ['legacyValue'];
 
@@ -178,7 +166,6 @@ final class TableColumnRetirementStrategyTest extends TestCase
 
     public function testDdlFailureIsWrapped(): void
     {
-        $this->markTestIncomplete('Implementation follows architecture approval.');
         $db = new RetirementRecordingDatabase(['id', 'legacyValue']);
         $db->failAlter = true;
 
@@ -254,13 +241,22 @@ final class RetirementRecordingDatabase implements DatabaseStrategy
             throw new DatastoreErrorException('Metadata failed');
         }
         if (stripos($query, 'INFORMATION_SCHEMA.COLUMNS') !== false) {
+            $columns = $this->columns;
+            if (preg_match("/AND COLUMN_NAME = '((?:''|[^'])*)'/i", $query, $matches) === 1) {
+                $requestedName = str_replace("''", "'", $matches[1]);
+                $columns = array_values(array_filter(
+                    $columns,
+                    static fn (string $name): bool => strcasecmp($name, $requestedName) === 0
+                ));
+            }
+
             return array_map(static fn (string $name): array => [
                 'COLUMN_NAME' => $name,
                 'COLUMN_TYPE' => 'bigint',
                 'IS_NULLABLE' => 'YES',
                 'COLUMN_DEFAULT' => null,
                 'EXTRA' => '',
-            ], $this->columns);
+            ], $columns);
         }
         if (stripos($query, 'INFORMATION_SCHEMA.STATISTICS') !== false) {
             return array_map(static fn (string $name): array => ['COLUMN_NAME' => $name], $this->indexedColumns);

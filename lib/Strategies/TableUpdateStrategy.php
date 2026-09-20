@@ -50,15 +50,128 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy, CoreTableColumnRet
         }
     }
 
-    /** Architecture stub. Implementation follows acceptance-contract approval. */
     public function columnExists(Table $table, string $columnName): bool
     {
-        return false;
+        $this->assertValidColumnName($columnName);
+
+        try {
+            return $this->findCurrentColumnName($table->getName(), $columnName) !== null;
+        } catch (\InvalidArgumentException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            throw new TableUpdateFailedException($e);
+        }
     }
 
-    /** Architecture stub. Implementation follows acceptance-contract approval. */
     public function retireColumns(Table $table, string ...$columnNames): void
     {
+        if ($columnNames === []) {
+            throw new \InvalidArgumentException('At least one column must be named for retirement.');
+        }
+
+        foreach ($columnNames as $columnName) {
+            $this->assertValidColumnName($columnName);
+        }
+
+        try {
+            $targets = [];
+            foreach ($columnNames as $columnName) {
+                $currentName = $this->findCurrentColumnName($table->getName(), $columnName);
+                if ($currentName !== null) {
+                    $targets[$currentName] = $currentName;
+                }
+            }
+
+            foreach ($table->getColumns() as $column) {
+                $declaredName = $column->getName();
+                $currentDeclaredName = $this->findCurrentColumnName($table->getName(), $declaredName);
+                foreach ($columnNames as $columnName) {
+                    if ($declaredName === $columnName
+                        || ($currentDeclaredName !== null && isset($targets[$currentDeclaredName]))) {
+                        throw new \InvalidArgumentException('A declared column cannot be retired.');
+                    }
+                }
+            }
+
+            if ($targets === []) {
+                return;
+            }
+
+            $this->assertNoColumnDependencies($table->getName(), $targets);
+
+            $drops = array_map(
+                fn(string $columnName): string => 'DROP COLUMN ' . $this->db->parse('?n', $columnName),
+                array_values($targets)
+            );
+            $query = $this->db->parse('ALTER TABLE ?n ', $table->getName()) . implode(', ', $drops);
+            $this->db->query($query);
+        } catch (\InvalidArgumentException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            throw new TableUpdateFailedException($e);
+        }
+    }
+
+    private function assertValidColumnName(string $columnName): void
+    {
+        if ($columnName === '' || str_contains($columnName, "\0")) {
+            throw new \InvalidArgumentException('Column names must be non-empty and cannot contain NUL.');
+        }
+    }
+
+    private function findCurrentColumnName(string $tableName, string $columnName): ?string
+    {
+        $rows = $this->db->query($this->db->parse(
+            'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS '
+            . 'WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?s AND COLUMN_NAME = ?s',
+            $tableName,
+            $columnName
+        ));
+
+        foreach ($rows as $row) {
+            if (isset($row['COLUMN_NAME']) && is_string($row['COLUMN_NAME'])) {
+                return $row['COLUMN_NAME'];
+            }
+        }
+
+        return null;
+    }
+
+    /** @param array<string, string> $targets persisted name => persisted name */
+    private function assertNoColumnDependencies(string $tableName, array $targets): void
+    {
+        $statistics = $this->db->query($this->db->parse(
+            'SELECT INDEX_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.STATISTICS '
+            . 'WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?s',
+            $tableName
+        ));
+
+        foreach ($statistics as $statistic) {
+            $columnName = $statistic['COLUMN_NAME'] ?? null;
+            if (is_string($columnName) && isset($targets[$columnName])) {
+                throw new \InvalidArgumentException('An indexed column cannot be retired implicitly.');
+            }
+            if ($columnName === null) {
+                throw new \InvalidArgumentException('An unresolved functional index prevents column retirement.');
+            }
+        }
+
+        $foreignKeys = $this->db->query($this->db->parse(
+            'SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME '
+            . 'FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() '
+            . 'AND (TABLE_NAME = ?s OR (REFERENCED_TABLE_SCHEMA = DATABASE() AND REFERENCED_TABLE_NAME = ?s))',
+            $tableName,
+            $tableName
+        ));
+
+        foreach ($foreignKeys as $foreignKey) {
+            $localColumn = $foreignKey['COLUMN_NAME'] ?? null;
+            $referencedColumn = $foreignKey['REFERENCED_COLUMN_NAME'] ?? null;
+            if ((is_string($localColumn) && isset($targets[$localColumn]))
+                || (is_string($referencedColumn) && isset($targets[$referencedColumn]))) {
+                throw new \InvalidArgumentException('A foreign-key column cannot be retired implicitly.');
+            }
+        }
     }
 
     /**

@@ -24,6 +24,7 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
     public const TABLE = 'nomad_column_retirement_contract';
     private const CHILD_TABLE = 'nomad_column_retirement_child';
     private const QUOTED_TABLE = 'nomad retirement odd`table';
+    private const ACCENT_TABLE = 'nomad_identifier_accent_contract';
 
     private PDO $pdo;
     private Container $container;
@@ -73,6 +74,7 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
             $this->pdo->exec('DROP TABLE IF EXISTS ' . self::CHILD_TABLE);
             $this->pdo->exec('DROP TABLE IF EXISTS ' . self::TABLE);
             $this->pdo->exec('DROP TABLE IF EXISTS ' . $this->quoteIdentifier(self::QUOTED_TABLE));
+            $this->pdo->exec('DROP TABLE IF EXISTS ' . self::ACCENT_TABLE);
             $this->pdo->exec('DROP DATABASE IF EXISTS ' . $this->quoteIdentifier($this->shadowSchema));
         }
 
@@ -81,8 +83,6 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
 
     public function testSyncIsAdditiveAndColumnExistenceIsScopedToTheActiveSchema(): void
     {
-        $this->markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
-
         $this->pdo->exec('CREATE DATABASE ' . $this->quoteIdentifier($this->shadowSchema));
         $this->pdo->exec(
             'CREATE TABLE ' . $this->quoteIdentifier($this->shadowSchema) . '.' . self::TABLE
@@ -110,15 +110,11 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
 
     public function testBootstrapperResolvesOneStrategyForBaseAndRetirementContracts(): void
     {
-        $this->markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
-
         self::assertSame($this->strategy, $this->container->get(UpdateStrategy::class));
     }
 
     public function testRetirementDeduplicatesBackendEquivalentNamesAndIsIdempotent(): void
     {
-        $this->markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
-
         $retired = [
             'legacyValue',
             'LEGACYVALUE',
@@ -141,8 +137,6 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
 
     public function testCaseVariantPresentAndAbsentNamesRetireOnlyThePresentIntersection(): void
     {
-        self::markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
-
         $this->strategy->retireColumns($this->table(), 'LEGACYVALUE', 'missingLegacy');
 
         self::assertSame(
@@ -155,11 +149,35 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
         );
     }
 
+    public function testMetadataResolutionIsCaseInsensitiveButAccentSensitive(): void
+    {
+        $this->pdo->exec(
+            'CREATE TABLE ' . self::ACCENT_TABLE
+            . ' (id INT PRIMARY KEY, legacy INT NULL, `légacy` INT NULL, unrelatedUnknown VARCHAR(32) NULL) '
+            . 'ENGINE=InnoDB'
+        );
+        $this->pdo->exec(
+            "INSERT INTO " . self::ACCENT_TABLE
+            . " (id, legacy, `légacy`, unrelatedUnknown) VALUES (1, 41, 42, 'keep')"
+        );
+        $table = $this->table(['id'], self::ACCENT_TABLE);
+
+        self::assertTrue($this->strategy->columnExists($table, 'LEGACY'));
+        self::assertTrue($this->strategy->columnExists($table, 'LÉGACY'));
+        $this->strategy->retireColumns($table, 'LEGACY');
+
+        self::assertSame(['id', 'légacy', 'unrelatedUnknown'], $this->columns(self::ACCENT_TABLE));
+        self::assertSame(
+            [['id' => '1', 'légacy' => '42', 'unrelatedUnknown' => 'keep']],
+            $this->pdo->query(
+                'SELECT id, `légacy`, unrelatedUnknown FROM ' . self::ACCENT_TABLE
+            )->fetchAll()
+        );
+    }
+
     /** @dataProvider invalidBatchMembers */
     public function testInvalidBatchMemberPreventsAnyPersistedMutation(string $invalidName): void
     {
-        self::markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
-
         $failure = null;
         try {
             $this->strategy->retireColumns($this->table(), 'legacyValue', $invalidName);
@@ -185,8 +203,6 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
 
     public function testRetirementQuotesThePersistedTableIdentifier(): void
     {
-        self::markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
-
         $quotedTable = $this->quoteIdentifier(self::QUOTED_TABLE);
         $this->pdo->exec(
             'CREATE TABLE ' . $quotedTable
@@ -207,8 +223,6 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
 
     public function testWholeBatchPreflightRejectsADeclaredCaseVariantBeforeDdl(): void
     {
-        $this->markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
-
         try {
             $this->strategy->retireColumns(
                 $this->table(['id', 'unrelatedUnknown']),
@@ -226,8 +240,6 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
 
     public function testWholeBatchPreflightUsesDatabaseCaseSemanticsForUnicodeNames(): void
     {
-        self::markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
-
         try {
             $this->strategy->retireColumns(
                 $this->table(['id', 'légacy值']),
@@ -245,8 +257,6 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
 
     public function testPlainIndexedColumnIsRefusedWithoutSchemaChanges(): void
     {
-        $this->markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
-
         $this->pdo->exec('ALTER TABLE ' . self::TABLE . ' ADD INDEX legacy_value_index (legacyValue)');
 
         try {
@@ -264,8 +274,6 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
 
     public function testFunctionalIndexDependencyIsRefusedWhenStatisticsColumnNameIsNull(): void
     {
-        $this->markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
-
         $this->pdo->exec(
             'ALTER TABLE ' . self::TABLE . ' ADD INDEX legacy_value_expression ((legacyValue + 1))'
         );
@@ -291,8 +299,6 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
 
     public function testInboundForeignKeyColumnIsRefusedWithoutSchemaChanges(): void
     {
-        $this->markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
-
         $this->pdo->exec('ALTER TABLE ' . self::TABLE . ' ADD UNIQUE INDEX legacy_value_unique (legacyValue)');
         $this->pdo->exec(
             'CREATE TABLE ' . self::CHILD_TABLE
@@ -318,6 +324,7 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
         $this->pdo->exec('DROP TABLE IF EXISTS ' . self::CHILD_TABLE);
         $this->pdo->exec('DROP TABLE IF EXISTS ' . self::TABLE);
         $this->pdo->exec('DROP TABLE IF EXISTS ' . $this->quoteIdentifier(self::QUOTED_TABLE));
+        $this->pdo->exec('DROP TABLE IF EXISTS ' . self::ACCENT_TABLE);
         $this->pdo->exec('DROP DATABASE IF EXISTS ' . $this->quoteIdentifier($this->shadowSchema));
         $this->pdo->exec(
             'CREATE TABLE ' . self::TABLE . ' ('
