@@ -44,10 +44,10 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables, CanBuildWit
     protected array $join = [];
 
     /** @var array{table: Table, name: string, alias: string}|null */
-    protected ?array $rootQuerySource = null;
+    private ?array $rootQuerySource = null;
 
     /** @var list<array{table: Table, name: string, alias: string}> */
-    protected array $joinedQuerySources = [];
+    private array $joinedQuerySources = [];
 
     /** @var list<DatabaseStrategy> */
     private array $databaseStrategyStack = [];
