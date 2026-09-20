@@ -9,8 +9,7 @@ use PHPNomad\MySql\Integration\Connections\PdoConnection;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 
 /**
- * PDO-backed DatabaseStrategy: the maintained replacement for the
- * abandoned colshrapnel/safemysql backend (phpnomad/safemysql-integration#2).
+ * PDO-backed DatabaseStrategy for MySQL.
  *
  * parse() implements the same placeholder language SafeMySQL defined —
  * ?n identifier, ?s string, ?i integer, ?a IN-list, ?u SET clause,
