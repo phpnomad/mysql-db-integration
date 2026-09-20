@@ -75,7 +75,7 @@ class PdoDatabaseStrategy implements DatabaseStrategy
     }
 
     /**
-     * @param list<mixed> $args
+     * @param array<array-key, mixed> $args
      * @throws QueryBuilderException
      */
     protected function assertArgumentCountMatches(string $query, array $args): void
