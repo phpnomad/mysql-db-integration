@@ -36,7 +36,7 @@
         }
     ],
     "require": {
-        "phpnomad/db": "dev-codex/coordinated-database-contracts-v2 as 2.2.x-dev",
+        "phpnomad/db": "dev-packet/table-column-retirement-contract as 2.2.x-dev",
         "phpnomad/loader": "^1.0 || ^2.0",
         "ext-pdo": "*"
     },

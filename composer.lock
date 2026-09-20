@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "f99afd4895e3326f37492cab04488d37",
+    "content-hash": "b9d54a5d7274a44e49b5658f48491d02",
     "packages": [
         {
             "name": "phpnomad/cache",
@@ -93,11 +93,11 @@
         },
         {
             "name": "phpnomad/db",
-            "version": "dev-codex/coordinated-database-contracts-v2",
+            "version": "dev-packet/table-column-retirement-contract",
             "source": {
                 "type": "git",
                 "url": "git@github.com:phpnomad/db.git",
-                "reference": "bc502c5633893dcaff8420132f876863d14f4457"
+                "reference": "208e994c8dadd6e04f5cf441d68fc23fedc25d88"
             },
             "require": {
                 "phpnomad/cache": "^1.0",
@@ -107,6 +107,7 @@
                 "phpnomad/utils": "^1.0"
             },
             "require-dev": {
+                "phpnomad/event": "^1.0",
                 "phpnomad/tests": "^0.1.0 || ^0.3.0"
             },
             "type": "library",
@@ -135,7 +136,7 @@
                 }
             ],
             "homepage": "https://github.com/phpnomad/core",
-            "time": "2026-09-17T22:52:37+00:00"
+            "time": "2026-09-20T16:55:34+00:00"
         },
         {
             "name": "phpnomad/di",
@@ -5364,7 +5365,7 @@
     "aliases": [
         {
             "package": "phpnomad/db",
-            "version": "dev-codex/coordinated-database-contracts-v2",
+            "version": "dev-packet/table-column-retirement-contract",
             "alias": "2.2.x-dev",
             "alias_normalized": "2.2.9999999.9999999-dev"
         }
