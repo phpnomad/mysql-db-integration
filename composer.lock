@@ -97,7 +97,7 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpnomad/db.git",
-                "reference": "208e994c8dadd6e04f5cf441d68fc23fedc25d88"
+                "reference": "77031d8de80c3a548c9b0eb3ad1f35716b9963c8"
             },
             "require": {
                 "phpnomad/cache": "^1.0",
@@ -136,7 +136,7 @@
                 }
             ],
             "homepage": "https://github.com/phpnomad/core",
-            "time": "2026-09-20T16:55:34+00:00"
+            "time": "2026-09-20T17:17:50+00:00"
         },
         {
             "name": "phpnomad/di",
