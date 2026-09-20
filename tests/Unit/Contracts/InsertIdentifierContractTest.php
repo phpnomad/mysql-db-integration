@@ -20,11 +20,6 @@ use Throwable;
 /** Distinguishes the backend's identifier path from ordinary value formatting. */
 final class InsertIdentifierContractTest extends BoundFormattingContractCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-    }
-
     /** @dataProvider columnNames */
     public function testEveryColumnUsesTheInjectedIdentifierFormatter(string $column): void
     {

@@ -22,11 +22,6 @@ use PHPNomad\MySql\Integration\Tests\TestCase;
 /** Production boot, literal identifiers, and independently visible ordinary inserts. */
 final class InsertIdentifierDriverContractTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-    }
-
     /** @dataProvider literalColumns */
     public function testLiteralColumnNamesPreserveTheirValues(string $column, bool $noBackslashes): void
     {
