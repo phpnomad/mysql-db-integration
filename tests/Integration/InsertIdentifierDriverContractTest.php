@@ -16,7 +16,7 @@ use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\MySql\Integration\MySqlInitializer;
 use PHPNomad\MySql\Integration\Strategies\PdoDatabaseStrategy;
 use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\FormattingHostServices;
-use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\InsertIdentifierTable;
+use PHPNomad\MySql\Integration\Tests\Fixtures\InsertIdentifierTable;
 use PHPNomad\MySql\Integration\Tests\TestCase;
 
 /** Production boot, literal identifiers, and independently visible ordinary inserts. */

@@ -1,6 +1,6 @@
 <?php
 
-namespace PHPNomad\MySql\Integration\Tests\Integration\Fixtures;
+namespace PHPNomad\MySql\Integration\Tests\Fixtures;
 
 use PHPNomad\Database\Factories\Column;
 use PHPNomad\Database\Factories\Index;

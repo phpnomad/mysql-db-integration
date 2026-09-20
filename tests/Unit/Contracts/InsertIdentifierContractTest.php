@@ -3,13 +3,15 @@
 namespace PHPNomad\MySql\Integration\Tests\Unit\Contracts;
 
 use Error;
+use PHPNomad\Cache\Interfaces\CachePolicy;
+use PHPNomad\Cache\Interfaces\CacheStrategy;
 use PHPNomad\Cache\Services\CacheableService;
 use PHPNomad\Database\Services\TableSchemaService;
+use PHPNomad\Events\Interfaces\EventStrategy;
 use PHPNomad\MySql\Integration\Builders\MySqlClauseBuilder;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\MySql\Integration\Strategies\QueryStrategy;
-use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\FormattingHostServices;
-use PHPNomad\MySql\Integration\Tests\Integration\Fixtures\InsertIdentifierTable;
+use PHPNomad\MySql\Integration\Tests\Fixtures\InsertIdentifierTable;
 use PHPNomad\MySql\Integration\Tests\Unit\Fixtures\BoundFormattingContractCase;
 use RuntimeException;
 use Throwable;
@@ -120,8 +122,13 @@ final class InsertIdentifierContractTest extends BoundFormattingContractCase
 
     private function strategy(DatabaseStrategy $backend): QueryStrategy
     {
-        $host = new FormattingHostServices();
-        $schema = new TableSchemaService(new CacheableService($host, $host, $host));
+        $cache = $this->createMock(CacheStrategy::class);
+        $cache->method('exists')->willReturn(false);
+        $policy = $this->createMock(CachePolicy::class);
+        $policy->method('getCacheKey')->willReturn('insert_contract');
+        $policy->method('getTtl')->willReturn(null);
+        $events = $this->createMock(EventStrategy::class);
+        $schema = new TableSchemaService(new CacheableService($events, $cache, $policy));
         return new QueryStrategy($backend, $schema, new MySqlClauseBuilder());
     }
 
