@@ -113,74 +113,86 @@ class QueryStrategy implements CoreQueryStrategy
     }
 
 
-    /** @inheritDoc */
+    /**
+     * @param array<string, int|string> $ids
+     */
     public function delete(Table $table, array $ids): void
     {
-        // `andWhere` is used throughout rather than `where` so compound-key
-        // deletes AND the conditions together. `where` appends clauses with
-        // no logical operator between them, which yields invalid SQL as soon
-        // as there is more than one key.
-        $this->clauseBuilder->reset()->useTable($table);
-        foreach ($ids as $key => $value) {
-            $this->clauseBuilder->andWhere($key, '=', $value);
+        try {
+            // `andWhere` is used throughout rather than `where` so compound-key
+            // deletes AND the conditions together. `where` appends clauses with
+            // no logical operator between them, which yields invalid SQL as soon
+            // as there is more than one key.
+            $this->clauseBuilder->reset()->useTable($table);
+            foreach ($ids as $key => $value) {
+                $this->clauseBuilder->andWhere($key, '=', $value);
+            }
+
+            $whereClause = $this->clauseBuilder instanceof CanBuildWithDatabaseStrategy
+                ? $this->clauseBuilder->buildWithDatabaseStrategy($this->db)
+                : $this->clauseBuilder->build();
+
+            $query = $this->db->parse(
+                'DELETE ?n FROM ?n AS ?n WHERE ?p',
+                $table->getAlias(),
+                $table->getName(),
+                $table->getAlias(),
+                $whereClause
+            );
+
+            $this->db->query($query);
+        } catch (QueryBuilderException $e) {
+            throw new DatastoreErrorException('Delete failed. Invalid query: ' . $e->getMessage(), 500, $e);
         }
-
-        $whereClause = $this->clauseBuilder instanceof CanBuildWithDatabaseStrategy
-            ? $this->clauseBuilder->buildWithDatabaseStrategy($this->db)
-            : $this->clauseBuilder->build();
-
-        $query = $this->db->parse(
-            "DELETE ?n FROM ?n AS ?n WHERE $whereClause",
-            $table->getAlias(),
-            $table->getName(),
-            $table->getAlias()
-        );
-
-        $this->db->query($query);
     }
 
     /**
-     * @param array<string, int> $ids
+     * @param array<string, int|string> $ids
      * @param array<string, mixed> $data
      */
     public function update(Table $table, array $ids, array $data): void
     {
-        // Build the SET clause
-        $setClause = Arr::process($data)
-            ->each(fn ($v, $k) => '?n = ?s')
-            ->setSeparator(', ')
-            ->toString();
+        try {
+            // Build the SET clause
+            $setClause = Arr::process($data)
+                ->each(fn ($v, $k) => '?n = ?s')
+                ->setSeparator(', ')
+                ->toString();
 
-        // Build WHERE clause
-        $this->clauseBuilder->reset()->useTable($table);
-        foreach ($ids as $key => $value) {
-            $this->clauseBuilder->andWhere($key, '=', $value);
+            // Build WHERE clause
+            $this->clauseBuilder->reset()->useTable($table);
+            foreach ($ids as $key => $value) {
+                $this->clauseBuilder->andWhere($key, '=', $value);
+            }
+
+            $whereClause = $this->clauseBuilder instanceof CanBuildWithDatabaseStrategy
+                ? $this->clauseBuilder->buildWithDatabaseStrategy($this->db)
+                : $this->clauseBuilder->build();
+
+            // Flatten $data into [col1, val1, col2, val2, ...] manually
+            $setBindings = [];
+            foreach ($data as $key => $val) {
+                $setBindings[] = $key;
+                $setBindings[] = $val;
+            }
+            $setBindings[] = $whereClause;
+
+            $query = $this->db->parse(
+                "UPDATE ?n AS ?n SET $setClause WHERE ?p",
+                $table->getName(),
+                $table->getAlias(),
+                ...$setBindings
+            );
+
+            // MySQL returns 0 affected rows for a legitimate no-op update
+            // (matched row, values unchanged). That is not a "record not found"
+            // condition — the row exists; the supplied values were already what
+            // was stored. Callers that need existence checks should perform them
+            // before calling update(), not rely on the affected-rows count.
+            $this->db->query($query);
+        } catch (QueryBuilderException $e) {
+            throw new DatastoreErrorException('Update failed. Invalid query: ' . $e->getMessage(), 500, $e);
         }
-
-        $whereClause = $this->clauseBuilder instanceof CanBuildWithDatabaseStrategy
-            ? $this->clauseBuilder->buildWithDatabaseStrategy($this->db)
-            : $this->clauseBuilder->build();
-
-        // Flatten $data into [col1, val1, col2, val2, ...] manually
-        $setBindings = [];
-        foreach ($data as $key => $val) {
-            $setBindings[] = $key;
-            $setBindings[] = $val;
-        }
-
-        $query = $this->db->parse(
-            "UPDATE ?n AS ?n SET $setClause WHERE $whereClause",
-            $table->getName(),
-            $table->getAlias(),
-            ...$setBindings
-        );
-
-        // MySQL returns 0 affected rows for a legitimate no-op update
-        // (matched row, values unchanged). That is not a "record not found"
-        // condition — the row exists; the supplied values were already what
-        // was stored. Callers that need existence checks should perform them
-        // before calling update(), not rely on the affected-rows count.
-        $this->db->query($query);
     }
 
 

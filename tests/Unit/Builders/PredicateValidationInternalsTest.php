@@ -14,14 +14,14 @@ final class PredicateValidationInternalsTest extends TestCase
     {
         $this->expectException(QueryBuilderException::class);
 
-        (new PredicateValidationProbe())->condition('id', 'UNKNOWN', [7]);
+        $this->probe()->where('id', 'UNKNOWN', 7);
     }
 
     public function testConditionNormalizesAKnownOperator(): void
     {
         $probe = $this->probe();
 
-        $probe->condition('id', 'like', [7]);
+        $probe->where('id', 'like', 7);
 
         self::assertSame(['s.id', 'LIKE', '?s'], $probe->clauseParts());
     }
@@ -75,6 +75,42 @@ final class PredicateValidationInternalsTest extends TestCase
         self::assertSame('?s AND ?s', $probe->placeholder('NOT BETWEEN'));
     }
 
+    /**
+     * @dataProvider valuedConditionValues
+     * @param list<mixed> $values
+     */
+    public function testValuedConditionValuesRetainEveryPosition(string $operator, array $values): void
+    {
+        $probe = $this->probe();
+
+        $probe->where('id', $operator, ...$values);
+
+        self::assertSame($values, $probe->preparedValues());
+    }
+
+    /** @dataProvider nullOperators */
+    public function testNullOperatorsNormalizeTheirCompatibilityNull(string $operator): void
+    {
+        $probe = $this->probe();
+
+        $probe->where('id', $operator);
+        self::assertSame([], $probe->preparedValues());
+
+        $probe->reset()->where('id', $operator, null);
+        self::assertSame([], $probe->preparedValues());
+    }
+
+    /**
+     * @dataProvider invalidConditionValues
+     * @param list<mixed> $values
+     */
+    public function testInvalidConditionValueCountsAreRejected(string $operator, array $values): void
+    {
+        $this->expectException(QueryBuilderException::class);
+
+        $this->probe()->where('id', $operator, ...$values);
+    }
+
     /** @dataProvider validGroupLogic */
     public function testGroupLogicNormalizesTheValidVocabulary(string $logic, string $expected): void
     {
@@ -111,6 +147,41 @@ final class PredicateValidationInternalsTest extends TestCase
         return ['empty' => [''], 'unknown' => ['XOR'], 'injection-shaped' => ['OR 1=1 OR']];
     }
 
+    /** @return array<string, array{string, list<mixed>}> */
+    public static function valuedConditionValues(): array
+    {
+        return [
+            'scalar null' => ['=', [null]],
+            'range lower null' => ['BETWEEN', [null, 20]],
+            'range upper null' => ['NOT BETWEEN', [20, null]],
+            'variadic list null' => ['IN', [10, null, 20]],
+            'array list null' => ['NOT IN', [[10, null, 20]]],
+            'compound tuples' => ['IN', [['id' => 1, 'score' => 10], ['id' => 2, 'score' => null]]],
+            'explicit empty list' => ['IN', [[]]],
+        ];
+    }
+
+    /** @return array<string, array{string}> */
+    public static function nullOperators(): array
+    {
+        return ['is null' => ['IS NULL'], 'is not null' => ['IS NOT NULL']];
+    }
+
+    /** @return array<string, array{string, list<mixed>}> */
+    public static function invalidConditionValues(): array
+    {
+        return [
+            'scalar missing' => ['=', []],
+            'scalar extra' => ['LIKE', [10, 20]],
+            'range missing' => ['BETWEEN', [10]],
+            'range extra' => ['NOT BETWEEN', [10, 20, 30]],
+            'in empty' => ['IN', []],
+            'not in empty' => ['NOT IN', []],
+            'is null valued' => ['IS NULL', [10]],
+            'is not null extra null' => ['IS NOT NULL', [null, null]],
+        ];
+    }
+
     private function probe(): PredicateValidationProbe
     {
         $table = $this->createMock(Table::class);
@@ -143,12 +214,6 @@ final class PredicateValidationProbe extends MySqlClauseBuilder
         return $this->getFieldString($field);
     }
 
-    /** @param list<mixed> $values */
-    public function condition(string $field, string $operator, array $values): self
-    {
-        return $this->addCondition($field, $operator, $values);
-    }
-
     public function placeholder(string $operator): string
     {
         return $this->generatePlaceholder('id', [7, 9], $operator);
@@ -163,5 +228,11 @@ final class PredicateValidationProbe extends MySqlClauseBuilder
     public function clauseParts(): array
     {
         return $this->clauses;
+    }
+
+    /** @return list<mixed> */
+    public function preparedValues(): array
+    {
+        return $this->preparedValues;
     }
 }

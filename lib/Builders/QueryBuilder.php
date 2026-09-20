@@ -44,10 +44,10 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables, CanBuildWit
     protected array $join = [];
 
     /** @var array{table: Table, name: string, alias: string}|null */
-    protected ?array $rootQuerySource = null;
+    private ?array $rootQuerySource = null;
 
     /** @var list<array{table: Table, name: string, alias: string}> */
-    protected array $joinedQuerySources = [];
+    private array $joinedQuerySources = [];
 
     /** @var list<DatabaseStrategy> */
     private array $databaseStrategyStack = [];
@@ -311,12 +311,16 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables, CanBuildWit
 
         $this->sql = Arr::merge($this->select, $this->from);
         $this->maybeAppend('join');
+        $whereClause = null;
+        $whereSqlIndex = null;
+        $wherePrepareIndex = count($this->prepare);
 
         // ClauseBuilder handles its own sanitization, so it's not double-processed.
         if ($this->clauseBuilder !== null) {
             $whereClause = $this->buildClause($this->clauseBuilder);
 
             if (!empty($whereClause)) {
+                $whereSqlIndex = count($this->sql);
                 $this->sql[] = 'WHERE ' . $whereClause;
             }
         }
@@ -326,15 +330,20 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables, CanBuildWit
         $this->maybeAppend('limit');
         $this->maybeAppend('offset');
 
-        // Convert to string
-        $sql = implode(' ', $this->sql);
-
         // If necessary, prepare the query
         if (!empty($this->prepare)) {
+            if ($whereSqlIndex !== null && $whereClause !== null) {
+                $this->sql[$whereSqlIndex] = 'WHERE ?p';
+                array_splice($this->prepare, $wherePrepareIndex, 0, [$whereClause]);
+            }
+
             $database = $this->getActiveDatabaseStrategy();
+            $sql = implode(' ', $this->sql);
             $sql = $database === null
                 ? Database::parse($sql, ...$this->prepare)
                 : $database->parse($sql, ...$this->prepare);
+        } else {
+            $sql = implode(' ', $this->sql);
         }
 
         $this->reset();

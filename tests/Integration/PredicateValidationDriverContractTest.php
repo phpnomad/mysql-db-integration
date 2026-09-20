@@ -10,6 +10,7 @@ use PHPNomad\Database\Exceptions\QueryBuilderException;
 use PHPNomad\Database\Interfaces\ClauseBuilder;
 use PHPNomad\Database\Interfaces\QueryBuilder;
 use PHPNomad\Database\Interfaces\QueryStrategy;
+use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
 use PHPNomad\Di\Container;
 use PHPNomad\Events\Interfaces\EventStrategy;
 use PHPNomad\Loader\Bootstrapper;
@@ -44,10 +45,16 @@ final class PredicateValidationDriverContractTest extends TestCase
             $failure = null;
             try {
                 $this->execute($container, $operation, $ids);
-            } catch (QueryBuilderException $caught) {
+            } catch (QueryBuilderException|DatastoreErrorException $caught) {
                 $failure = $caught;
             }
-            self::assertInstanceOf(QueryBuilderException::class, $failure);
+            if ($operation === 'query') {
+                // This path constructs the predicate before calling QueryStrategy.
+                self::assertInstanceOf(QueryBuilderException::class, $failure);
+            } else {
+                self::assertInstanceOf(DatastoreErrorException::class, $failure);
+                self::assertInstanceOf(QueryBuilderException::class, $failure->getPrevious());
+            }
             self::assertSame(0, $pdo->queryCalls);
             self::assertSame($this->originalRows(), $this->rows($pdo));
         });
