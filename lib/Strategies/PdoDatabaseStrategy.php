@@ -60,6 +60,7 @@ class PdoDatabaseStrategy implements DatabaseStrategy
                 }
             }
 
+            /** @var '?n'|'?s'|'?i'|'?a'|'?u'|'?p' $part */
             $result .= match ($part) {
                 '?n' => $this->escapeIdentifier((string) $value),
                 '?s' => $this->escapeString($value),

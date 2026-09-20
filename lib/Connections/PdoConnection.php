@@ -12,6 +12,8 @@ use PDO;
  * abandoned colshrapnel/safemysql backend is a binding swap. An existing
  * PDO instance can also be wrapped directly via fromPdo() — useful for
  * tests and for applications that manage their own connection.
+ *
+ * @phpstan-consistent-constructor
  */
 class PdoConnection
 {
