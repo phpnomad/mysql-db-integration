@@ -77,6 +77,48 @@ final class TableColumnRetirementStrategyTest extends TestCase
         ];
     }
 
+    /** @dataProvider malformedMetadataResults */
+    public function testMalformedIdentifierComparisonFailsClosedBeforeDdl($result): void
+    {
+        $db = new RetirementRecordingDatabase(['id', 'legacyValue']);
+        $db->metadataOverrides['identifier'] = $result;
+
+        try {
+            (new TableUpdateStrategy($db))->retireColumns($this->table(), 'legacyValue');
+            self::fail('Malformed identifier-comparison metadata must fail closed.');
+        } catch (TableUpdateFailedException $expected) {
+            self::assertSame([], $db->alterQueries());
+        }
+    }
+
+    /** @dataProvider malformedMetadataResults */
+    public function testMalformedStatisticsMetadataFailsClosedBeforeDdl($result): void
+    {
+        $db = new RetirementRecordingDatabase(['id', 'legacyValue']);
+        $db->metadataOverrides['statistics'] = $result;
+
+        try {
+            (new TableUpdateStrategy($db))->retireColumns($this->table(), 'legacyValue');
+            self::fail('Malformed index metadata must fail closed.');
+        } catch (TableUpdateFailedException $expected) {
+            self::assertSame([], $db->alterQueries());
+        }
+    }
+
+    /** @dataProvider malformedMetadataResults */
+    public function testMalformedForeignKeyMetadataFailsClosedBeforeDdl($result): void
+    {
+        $db = new RetirementRecordingDatabase(['id', 'legacyValue']);
+        $db->metadataOverrides['foreign_key'] = $result;
+
+        try {
+            (new TableUpdateStrategy($db))->retireColumns($this->table(), 'legacyValue');
+            self::fail('Malformed foreign-key metadata must fail closed.');
+        } catch (TableUpdateFailedException $expected) {
+            self::assertSame([], $db->alterQueries());
+        }
+    }
+
     public function testRetirementDropsOnlyTheNamedColumn(): void
     {
         $db = new RetirementRecordingDatabase(['id', 'legacyValue', 'unrelatedUnknown']);
@@ -226,6 +268,8 @@ final class RetirementRecordingDatabase implements DatabaseStrategy
     public bool $failAlter = false;
     public bool $overrideMetadataResult = false;
     public $metadataResult;
+    /** @var array<string, mixed> */
+    public array $metadataOverrides = [];
 
     /** @param list<string> $columns */
     public function __construct(array $columns = [])
@@ -265,6 +309,18 @@ final class RetirementRecordingDatabase implements DatabaseStrategy
         }
         if ($this->failMetadata) {
             throw new DatastoreErrorException('Metadata failed');
+        }
+        if (stripos($query, 'AS identifiers_equal') !== false
+            && array_key_exists('identifier', $this->metadataOverrides)) {
+            return $this->metadataOverrides['identifier'];
+        }
+        if (stripos($query, 'INFORMATION_SCHEMA.STATISTICS') !== false
+            && array_key_exists('statistics', $this->metadataOverrides)) {
+            return $this->metadataOverrides['statistics'];
+        }
+        if (stripos($query, 'INFORMATION_SCHEMA.KEY_COLUMN_USAGE') !== false
+            && array_key_exists('foreign_key', $this->metadataOverrides)) {
+            return $this->metadataOverrides['foreign_key'];
         }
         if ($this->overrideMetadataResult && stripos($query, 'INFORMATION_SCHEMA.') !== false) {
             return $this->metadataResult;

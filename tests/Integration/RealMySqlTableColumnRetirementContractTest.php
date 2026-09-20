@@ -160,17 +160,17 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
             "INSERT INTO " . self::ACCENT_TABLE
             . " (id, legacy, `légacy`, unrelatedUnknown) VALUES (1, 41, 42, 'keep')"
         );
-        $table = $this->table(['id'], self::ACCENT_TABLE);
+        $table = $this->table(['id', 'legacy'], self::ACCENT_TABLE);
 
         self::assertTrue($this->strategy->columnExists($table, 'LEGACY'));
         self::assertTrue($this->strategy->columnExists($table, 'LÉGACY'));
-        $this->strategy->retireColumns($table, 'LEGACY');
+        $this->strategy->retireColumns($table, 'LÉGACY');
 
-        self::assertSame(['id', 'légacy', 'unrelatedUnknown'], $this->columns(self::ACCENT_TABLE));
+        self::assertSame(['id', 'legacy', 'unrelatedUnknown'], $this->columns(self::ACCENT_TABLE));
         self::assertSame(
-            [['id' => '1', 'légacy' => '42', 'unrelatedUnknown' => 'keep']],
+            [['id' => '1', 'legacy' => '41', 'unrelatedUnknown' => 'keep']],
             $this->pdo->query(
-                'SELECT id, `légacy`, unrelatedUnknown FROM ' . self::ACCENT_TABLE
+                'SELECT id, legacy, unrelatedUnknown FROM ' . self::ACCENT_TABLE
             )->fetchAll()
         );
     }
