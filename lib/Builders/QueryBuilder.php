@@ -9,9 +9,11 @@ use PHPNomad\Database\Interfaces\QueryBuilder as QueryBuilderInterface;
 use PHPNomad\Database\Interfaces\Table;
 use PHPNomad\Database\Traits\WithPrependedFields;
 use PHPNomad\MySql\Integration\Facades\Database;
+use PHPNomad\MySql\Integration\Interfaces\CanBuildWithDatabaseStrategy;
+use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\Utils\Helpers\Arr;
 
-class QueryBuilder implements QueryBuilderInterface, HasQueryTables
+class QueryBuilder implements QueryBuilderInterface, HasQueryTables, CanBuildWithDatabaseStrategy
 {
     use WithPrependedFields;
 
@@ -42,10 +44,32 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
     protected array $join = [];
 
     /** @var array{table: Table, name: string, alias: string}|null */
-    protected ?array $rootQuerySource = null;
+    private ?array $rootQuerySource = null;
 
     /** @var list<array{table: Table, name: string, alias: string}> */
-    protected array $joinedQuerySources = [];
+    private array $joinedQuerySources = [];
+
+    /** @var list<DatabaseStrategy> */
+    private array $databaseStrategyStack = [];
+
+    /** Copy builder content without inheriting a temporary backend binding. */
+    public function __clone(): void
+    {
+        $this->databaseStrategyStack = [];
+    }
+
+
+    /** @inheritDoc */
+    public function buildWithDatabaseStrategy(DatabaseStrategy $database): string
+    {
+        $this->databaseStrategyStack[] = $database;
+
+        try {
+            return $this->build();
+        } finally {
+            array_pop($this->databaseStrategyStack);
+        }
+    }
 
     /** @inheritDoc */
     public function getReferencedTables(): array
@@ -78,7 +102,7 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
         }
 
         $this->select[] = Arr::process(Arr::merge([$field], $fields))
-            ->each(fn(string $field) => $this->prependField($field))
+            ->each(fn (string $field) => $this->prependField($field))
             ->toString();
 
         return $this;
@@ -210,7 +234,7 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
             $alias = $fieldToCount === '*' ? 'count' : $fieldToCount . '_count';
         }
 
-        if($fieldToCount !== '*'){
+        if ($fieldToCount !== '*') {
             $fieldToCount = $this->prependField($fieldToCount);
         }
 
@@ -287,12 +311,16 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
 
         $this->sql = Arr::merge($this->select, $this->from);
         $this->maybeAppend('join');
+        $whereClause = null;
+        $whereSqlIndex = null;
+        $wherePrepareIndex = count($this->prepare);
 
         // ClauseBuilder handles its own sanitization, so it's not double-processed.
         if ($this->clauseBuilder !== null) {
-            $whereClause = $this->clauseBuilder->build();
+            $whereClause = $this->buildClause($this->clauseBuilder);
 
             if (!empty($whereClause)) {
+                $whereSqlIndex = count($this->sql);
                 $this->sql[] = 'WHERE ' . $whereClause;
             }
         }
@@ -302,12 +330,20 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
         $this->maybeAppend('limit');
         $this->maybeAppend('offset');
 
-        // Convert to string
-        $sql = implode(' ', $this->sql);
-
         // If necessary, prepare the query
         if (!empty($this->prepare)) {
-            $sql = Database::parse($sql, ...$this->prepare);
+            if ($whereSqlIndex !== null && $whereClause !== null) {
+                $this->sql[$whereSqlIndex] = 'WHERE ?p';
+                array_splice($this->prepare, $wherePrepareIndex, 0, [$whereClause]);
+            }
+
+            $database = $this->getActiveDatabaseStrategy();
+            $sql = implode(' ', $this->sql);
+            $sql = $database === null
+                ? Database::parse($sql, ...$this->prepare)
+                : $database->parse($sql, ...$this->prepare);
+        } else {
+            $sql = implode(' ', $this->sql);
         }
 
         $this->reset();
@@ -379,6 +415,26 @@ class QueryBuilder implements QueryBuilderInterface, HasQueryTables
         if ($source['table']->getName() !== $source['name'] || $source['table']->getAlias() !== $source['alias']) {
             throw new QueryBuilderException('A table source changed after it was added to the query.');
         }
+    }
+
+    protected function buildClause(ClauseBuilder $clause): string
+    {
+        $database = $this->getActiveDatabaseStrategy();
+
+        if ($database !== null && $clause instanceof CanBuildWithDatabaseStrategy) {
+            return $clause->buildWithDatabaseStrategy($database);
+        }
+
+        return $clause->build();
+    }
+
+    protected function getActiveDatabaseStrategy(): ?DatabaseStrategy
+    {
+        if ($this->databaseStrategyStack === []) {
+            return null;
+        }
+
+        return $this->databaseStrategyStack[count($this->databaseStrategyStack) - 1];
     }
 
     /**

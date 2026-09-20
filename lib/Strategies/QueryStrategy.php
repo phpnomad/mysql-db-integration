@@ -10,6 +10,7 @@ use PHPNomad\Database\Interfaces\Table;
 use PHPNomad\Database\Services\TableSchemaService;
 use PHPNomad\Datastore\Exceptions\DatastoreErrorException;
 use PHPNomad\Datastore\Exceptions\RecordNotFoundException;
+use PHPNomad\MySql\Integration\Interfaces\CanBuildWithDatabaseStrategy;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\Utils\Helpers\Arr;
 use PHPNomad\Utils\Helpers\Str;
@@ -20,15 +21,18 @@ class QueryStrategy implements CoreQueryStrategy
         protected DatabaseStrategy $db,
         protected TableSchemaService $tableSchemaService,
         protected ClauseBuilder    $clauseBuilder
-    )
-    {
+    ) {
     }
 
-    /** @inheritDoc */
+    /** @return array<array-key, mixed> */
     public function query(QueryBuilder $builder): array
     {
         try {
-            $result = $this->db->query($builder->build());
+            $query = $builder instanceof CanBuildWithDatabaseStrategy
+                ? $builder->buildWithDatabaseStrategy($this->db)
+                : $builder->build();
+            /** @var array<array-key, mixed> $result */
+            $result = $this->db->query($query);
 
         } catch (QueryBuilderException $e) {
             throw new DatastoreErrorException('Get results failed. Invalid query: ' . $e->getMessage(), 500, $e);
@@ -41,7 +45,10 @@ class QueryStrategy implements CoreQueryStrategy
         return $result;
     }
 
-    /** @inheritDoc */
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, int>
+     */
     public function insert(Table $table, array $data): array
     {
         $columns = Arr::process($data)
@@ -50,7 +57,7 @@ class QueryStrategy implements CoreQueryStrategy
             ->toString();
 
         $placeholders = Arr::process($data)
-            ->map(fn() => '?s')
+            ->map(fn () => '?s')
             ->setSeparator(',')
             ->toString();
 
@@ -66,12 +73,13 @@ class QueryStrategy implements CoreQueryStrategy
 
     /**
      * @param Table $table
-     * @param array $data
-     * @return array
+     * @param array<string, mixed> $data
+     * @return array<string, int>
      * @throws DatastoreErrorException
      */
     protected function resolveInsertIdentity(Table $table, array $data)
     {
+        /** @var array<string, int> $identity */
         $identity = [];
         $primaryColumns = $this->tableSchemaService->getPrimaryColumnsForTable($table);
 
@@ -79,88 +87,112 @@ class QueryStrategy implements CoreQueryStrategy
             $name = $column->getName();
 
             if (array_key_exists($name, $data)) {
-                $identity[$name] = $data[$name];
+                /** @var int $identityValue */
+                $identityValue = $data[$name];
+                $identity[$name] = $identityValue;
                 continue;
             }
 
             if (Arr::hasValues($column->getAttributes(), 'AUTO_INCREMENT')) {
+                /** @var array<int, array<string, mixed>>|false $result */
                 $result = $this->db->query("SELECT LAST_INSERT_ID()");
 
                 if (!$result) {
                     throw new DatastoreErrorException('Failed to fetch LAST_INSERT_ID()');
                 }
 
-                $identity[$name] = (int) Arr::get($result[0], 'LAST_INSERT_ID()');
+                /** @var int|string $insertId */
+                $insertId = Arr::get($result[0], 'LAST_INSERT_ID()');
+                $identity[$name] = (int) $insertId;
             } else {
                 throw new DatastoreErrorException("Missing identity field '$name' and it is not auto-increment.");
             }
         }
-        
+
         return $identity;
     }
 
 
-    /** @inheritDoc */
+    /**
+     * @param array<string, int|string> $ids
+     */
     public function delete(Table $table, array $ids): void
     {
-        // `andWhere` is used throughout rather than `where` so compound-key
-        // deletes AND the conditions together. `where` appends clauses with
-        // no logical operator between them, which yields invalid SQL as soon
-        // as there is more than one key.
-        $this->clauseBuilder->reset()->useTable($table);
-        foreach ($ids as $key => $value) {
-            $this->clauseBuilder->andWhere($key, '=', $value);
+        try {
+            // `andWhere` is used throughout rather than `where` so compound-key
+            // deletes AND the conditions together. `where` appends clauses with
+            // no logical operator between them, which yields invalid SQL as soon
+            // as there is more than one key.
+            $this->clauseBuilder->reset()->useTable($table);
+            foreach ($ids as $key => $value) {
+                $this->clauseBuilder->andWhere($key, '=', $value);
+            }
+
+            $whereClause = $this->clauseBuilder instanceof CanBuildWithDatabaseStrategy
+                ? $this->clauseBuilder->buildWithDatabaseStrategy($this->db)
+                : $this->clauseBuilder->build();
+
+            $query = $this->db->parse(
+                'DELETE ?n FROM ?n AS ?n WHERE ?p',
+                $table->getAlias(),
+                $table->getName(),
+                $table->getAlias(),
+                $whereClause
+            );
+
+            $this->db->query($query);
+        } catch (QueryBuilderException $e) {
+            throw new DatastoreErrorException('Delete failed. Invalid query: ' . $e->getMessage(), 500, $e);
         }
-
-        $whereClause = $this->clauseBuilder->build();
-
-        $query = $this->db->parse(
-            "DELETE ?n FROM ?n AS ?n WHERE $whereClause",
-            $table->getAlias(),
-            $table->getName(),
-            $table->getAlias()
-        );
-
-        $this->db->query($query);
     }
 
-    /** @inheritDoc */
+    /**
+     * @param array<string, int|string> $ids
+     * @param array<string, mixed> $data
+     */
     public function update(Table $table, array $ids, array $data): void
     {
-        // Build the SET clause
-        $setClause = Arr::process($data)
-            ->each(fn($v, $k) => '?n = ?s')
-            ->setSeparator(', ')
-            ->toString();
+        try {
+            // Build the SET clause
+            $setClause = Arr::process($data)
+                ->each(fn ($v, $k) => '?n = ?s')
+                ->setSeparator(', ')
+                ->toString();
 
-        // Build WHERE clause
-        $this->clauseBuilder->reset()->useTable($table);
-        foreach ($ids as $key => $value) {
-            $this->clauseBuilder->andWhere($key, '=', $value);
+            // Build WHERE clause
+            $this->clauseBuilder->reset()->useTable($table);
+            foreach ($ids as $key => $value) {
+                $this->clauseBuilder->andWhere($key, '=', $value);
+            }
+
+            $whereClause = $this->clauseBuilder instanceof CanBuildWithDatabaseStrategy
+                ? $this->clauseBuilder->buildWithDatabaseStrategy($this->db)
+                : $this->clauseBuilder->build();
+
+            // Flatten $data into [col1, val1, col2, val2, ...] manually
+            $setBindings = [];
+            foreach ($data as $key => $val) {
+                $setBindings[] = $key;
+                $setBindings[] = $val;
+            }
+            $setBindings[] = $whereClause;
+
+            $query = $this->db->parse(
+                "UPDATE ?n AS ?n SET $setClause WHERE ?p",
+                $table->getName(),
+                $table->getAlias(),
+                ...$setBindings
+            );
+
+            // MySQL returns 0 affected rows for a legitimate no-op update
+            // (matched row, values unchanged). That is not a "record not found"
+            // condition — the row exists; the supplied values were already what
+            // was stored. Callers that need existence checks should perform them
+            // before calling update(), not rely on the affected-rows count.
+            $this->db->query($query);
+        } catch (QueryBuilderException $e) {
+            throw new DatastoreErrorException('Update failed. Invalid query: ' . $e->getMessage(), 500, $e);
         }
-        
-        $whereClause = $this->clauseBuilder->build();
-
-        // Flatten $data into [col1, val1, col2, val2, ...] manually
-        $setBindings = [];
-        foreach ($data as $key => $val) {
-            $setBindings[] = $key;
-            $setBindings[] = $val;
-        }
-
-        $query = $this->db->parse(
-            "UPDATE ?n AS ?n SET $setClause WHERE $whereClause",
-            $table->getName(),
-            $table->getAlias(),
-            ...$setBindings
-        );
-
-        // MySQL returns 0 affected rows for a legitimate no-op update
-        // (matched row, values unchanged). That is not a "record not found"
-        // condition — the row exists; the supplied values were already what
-        // was stored. Callers that need existence checks should perform them
-        // before calling update(), not rely on the affected-rows count.
-        $this->db->query($query);
     }
 
 
@@ -170,8 +202,11 @@ class QueryStrategy implements CoreQueryStrategy
         $query = $this->db->parse("SELECT COUNT(*) FROM ?n", $table->getName());
 
         try {
+            /** @var array<int, array<string, mixed>> $result */
             $result = $this->db->query($query);
-            return (int)Arr::get($result[0], 'COUNT(*)');
+            /** @var int|string $count */
+            $count = Arr::get($result[0], 'COUNT(*)');
+            return (int) $count;
         } catch (\Exception $e) {
             throw new DatastoreErrorException('Count query failed: ' . $e->getMessage(), 500, $e);
         }

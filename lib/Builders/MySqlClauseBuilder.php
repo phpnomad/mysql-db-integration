@@ -2,20 +2,47 @@
 
 namespace PHPNomad\MySql\Integration\Builders;
 
+use PHPNomad\Database\Exceptions\QueryBuilderException;
 use PHPNomad\Database\Interfaces\ClauseBuilder;
 use PHPNomad\Database\Traits\WithPrependedFields;
 use PHPNomad\MySql\Integration\Facades\Database;
+use PHPNomad\MySql\Integration\Interfaces\CanBuildWithDatabaseStrategy;
+use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\Utils\Helpers\Arr;
 
-class MySqlClauseBuilder implements ClauseBuilder
+class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
 {
     use WithPrependedFields;
 
+    /** @var list<mixed> */
     protected array $clauses = [];
+    /** @var list<mixed> */
     protected array $preparedValues = [];
+    /** @var list<DatabaseStrategy> */
+    private array $databaseStrategyStack = [];
+
+    /** @var list<string> */
     protected array $validOperators = ["=", "<", ">", "<=", ">=", "<>", "!=",
         "LIKE", "NOT LIKE", "IN", "NOT IN", "BETWEEN",
         "NOT BETWEEN", "IS NULL", "IS NOT NULL"];
+
+    /** Copy builder content without inheriting a temporary backend binding. */
+    public function __clone(): void
+    {
+        $this->databaseStrategyStack = [];
+    }
+
+    /** @inheritDoc */
+    public function buildWithDatabaseStrategy(DatabaseStrategy $database): string
+    {
+        $this->databaseStrategyStack[] = $database;
+
+        try {
+            return $this->build();
+        } finally {
+            array_pop($this->databaseStrategyStack);
+        }
+    }
 
     /**
      * @inheritDoc
@@ -49,8 +76,7 @@ class MySqlClauseBuilder implements ClauseBuilder
      */
     public function group(string $logic, ClauseBuilder ...$clauses)
     {
-        $group = ['logic' => $logic, 'clauses' => $clauses];
-        $this->clauses[] = $group;
+        $this->clauses[] = ['logic' => $this->normalizeGroupLogic($logic), 'clauses' => $clauses];
 
         return $this;
     }
@@ -60,6 +86,8 @@ class MySqlClauseBuilder implements ClauseBuilder
      */
     public function andGroup(string $logic, ClauseBuilder ...$clauses)
     {
+        $logic = $this->normalizeGroupLogic($logic);
+
         if (!empty($this->clauses)) {
             $this->clauses[] = 'AND';
         }
@@ -72,6 +100,8 @@ class MySqlClauseBuilder implements ClauseBuilder
      */
     public function orGroup(string $logic, ClauseBuilder ...$clauses)
     {
+        $logic = $this->normalizeGroupLogic($logic);
+
         if (!empty($this->clauses)) {
             $this->clauses[] = 'OR';
         }
@@ -80,32 +110,38 @@ class MySqlClauseBuilder implements ClauseBuilder
     }
 
     /**
-     * Gets the field string, filtering invalid fields.
+     * Gets the field string after validating every requested field.
      *
-     * @param $field
+     * @param string|string[] $field
      * @return string|null
+     * @throws QueryBuilderException
      */
     protected function getFieldString($field): ?string
     {
-        $result = null;
+        if (!is_array($field)) {
+            if (!$this->tableHasField($field)) {
+                throw new QueryBuilderException("Unknown field: {$field}");
+            }
 
-        if (!is_array($field) && $this->tableHasField($field)) {
-            $result = $this->prependField($field);
+            return $this->prependField($field);
         }
 
-        if (is_array($field)) {
-            $fieldStr = Arr::process($field)
-                ->filter(fn($field) => $this->tableHasField($field))
-                ->map(fn($field) => $this->prependField($field))
-                ->setSeparator(', ')
-                ->toString();
+        if ($field === []) {
+            throw new QueryBuilderException('A condition field list cannot be empty.');
+        }
 
-            if (!empty($fieldStr)) {
-                $result = "($fieldStr)";
+        foreach ($field as $member) {
+            if (!$this->tableHasField($member)) {
+                throw new QueryBuilderException("Unknown field: {$member}");
             }
         }
 
-        return $result;
+        $fieldStr = Arr::process($field)
+            ->map(fn ($member) => $this->prependField($member))
+            ->setSeparator(', ')
+            ->toString();
+
+        return "($fieldStr)";
     }
 
     /**
@@ -113,7 +149,7 @@ class MySqlClauseBuilder implements ClauseBuilder
      *
      * @param string|string[] $field The field, or fields to be compared.
      * @param string $operator The operator to be used in the comparison.
-     * @param array $values The values to be compared against.
+     * @param array<mixed> $values The values to be compared against.
      * @param ?string $logic (optional) The logic operator to be prepended to the condition.
      * @return $this
      */
@@ -121,19 +157,17 @@ class MySqlClauseBuilder implements ClauseBuilder
     {
         $operator = strtoupper($operator);
 
-        if (!in_array($operator, $this->validOperators)) {
-            return $this;
+        if (!in_array($operator, $this->validOperators, true)) {
+            throw new QueryBuilderException("Unknown operator: {$operator}");
         }
 
         $fieldStr = $this->getFieldString($field);
 
-        // If the field isn't on the active table, drop the whole predicate.
-        // Otherwise we'd push `null` for the field but still emit the operator
-        // and placeholder, producing invalid SQL like `WHERE = 'value'`.
         if ($fieldStr === null) {
-            return $this;
+            throw new QueryBuilderException('A condition field cannot resolve to an empty value.');
         }
 
+        $values = $this->normalizeConditionValues($operator, $values);
         $placeholder = $this->generatePlaceholder($field, $values, $operator);
 
         if (!empty($this->clauses) && $logic && in_array(strtoupper($logic), ['AND', 'OR'])) {
@@ -144,7 +178,7 @@ class MySqlClauseBuilder implements ClauseBuilder
         $this->clauses[] = $operator;
         $this->clauses[] = $placeholder;
 
-        foreach (Arr::whereNotNull($values) as $value) {
+        foreach ($values as $value) {
             $this->preparedValues[] = $value;
         }
 
@@ -174,7 +208,7 @@ class MySqlClauseBuilder implements ClauseBuilder
                     if ($groupClause instanceof ClauseBuilder) {
                         $marker++;
                         $uniqueMarker = '__NOMADIC_SUBQUERY__' . $marker;
-                        $builtClause = $groupClause->build();
+                        $builtClause = $this->buildClause($groupClause);
                         $subQueryReplacements[$uniqueMarker] = $builtClause;
                         $groupParts[] = $uniqueMarker;
                     }
@@ -185,7 +219,7 @@ class MySqlClauseBuilder implements ClauseBuilder
             } elseif ($clause instanceof ClauseBuilder) {
                 $marker++;
                 $uniqueMarker = '__NOMADIC_SUBQUERY__' . $marker;
-                $builtClause = $clause->build();
+                $builtClause = $this->buildClause($clause);
                 $subQueryReplacements[$uniqueMarker] = $builtClause;
                 $queryParts[] = $uniqueMarker;
             }
@@ -196,7 +230,10 @@ class MySqlClauseBuilder implements ClauseBuilder
 
             // Prepare the query with initial values if available
             if (!empty($allValues)) {
-                $query = Database::parse($query, ...$allValues);
+                $database = $this->getActiveDatabaseStrategy();
+                $query = $database === null
+                    ? Database::parse($query, ...$allValues)
+                    : $database->parse($query, ...$allValues);
             }
 
             // Replace subquery markers with their actual queries
@@ -210,6 +247,26 @@ class MySqlClauseBuilder implements ClauseBuilder
         return $query;
     }
 
+    protected function buildClause(ClauseBuilder $clause): string
+    {
+        $database = $this->getActiveDatabaseStrategy();
+
+        if ($database !== null && $clause instanceof CanBuildWithDatabaseStrategy) {
+            return $clause->buildWithDatabaseStrategy($database);
+        }
+
+        return $clause->build();
+    }
+
+    protected function getActiveDatabaseStrategy(): ?DatabaseStrategy
+    {
+        if ($this->databaseStrategyStack === []) {
+            return null;
+        }
+
+        return $this->databaseStrategyStack[count($this->databaseStrategyStack) - 1];
+    }
+
     /**
      * @inheritDoc
      */
@@ -221,11 +278,15 @@ class MySqlClauseBuilder implements ClauseBuilder
         return $this;
     }
 
+    /**
+     * @param string|string[] $field
+     * @param array<mixed> $values
+     */
     protected function generatePlaceholder($field, array $values, string $operator): string
     {
         $operator = strtoupper($operator);
 
-        if($operator === 'IS NULL' || $operator === 'IS NOT NULL'){
+        if ($operator === 'IS NULL' || $operator === 'IS NOT NULL') {
             return "";
         }
 
@@ -234,6 +295,62 @@ class MySqlClauseBuilder implements ClauseBuilder
             return "($placeholders)";
         }
 
+        if ($operator === 'BETWEEN' || $operator === 'NOT BETWEEN') {
+            return '?s AND ?s';
+        }
+
         return '?s';
+    }
+
+    /**
+     * @param list<mixed> $values
+     * @return list<mixed>
+     * @throws QueryBuilderException
+     */
+    private function normalizeConditionValues(string $operator, array $values): array
+    {
+        $count = count($values);
+
+        if ($operator === 'IS NULL' || $operator === 'IS NOT NULL') {
+            if ($values === [] || $values === [null]) {
+                return [];
+            }
+
+            throw new QueryBuilderException("Operator {$operator} accepts no values or one null value.");
+        }
+
+        if ($operator === 'BETWEEN' || $operator === 'NOT BETWEEN') {
+            if ($count !== 2) {
+                throw new QueryBuilderException("Operator {$operator} expects exactly two values; {$count} given.");
+            }
+
+            return $values;
+        }
+
+        if ($operator === 'IN' || $operator === 'NOT IN') {
+            if ($count === 0) {
+                throw new QueryBuilderException("Operator {$operator} expects at least one value.");
+            }
+
+            return $values;
+        }
+
+        if ($count !== 1) {
+            throw new QueryBuilderException("Operator {$operator} expects exactly one value; {$count} given.");
+        }
+
+        return $values;
+    }
+
+    /** @throws QueryBuilderException */
+    protected function normalizeGroupLogic(string $logic): string
+    {
+        $logic = strtoupper($logic);
+
+        if (!in_array($logic, ['AND', 'OR'], true)) {
+            throw new QueryBuilderException("Unknown group logic: {$logic}");
+        }
+
+        return $logic;
     }
 }
