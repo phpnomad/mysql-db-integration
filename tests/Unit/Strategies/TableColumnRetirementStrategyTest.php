@@ -99,7 +99,7 @@ final class TableColumnRetirementStrategyTest extends TestCase
         $db = new RetirementRecordingDatabase(['legacyValue']);
 
         try {
-            (new TableUpdateStrategy($db))->retireColumns($this->table(), $name);
+            (new TableUpdateStrategy($db))->retireColumns($this->table(), 'legacyValue', $name);
             self::fail('The invalid name must be rejected.');
         } catch (\InvalidArgumentException $e) {
             self::assertSame([], $db->alterQueries());
@@ -145,6 +145,7 @@ final class TableColumnRetirementStrategyTest extends TestCase
 
         self::assertStringContainsString('DROP COLUMN `legacy value`', $db->alterQueries()[0]);
         self::assertStringContainsString('DROP COLUMN `odd``name`', $db->alterQueries()[0]);
+        self::assertStringStartsWith('ALTER TABLE `sample-table` ', $db->alterQueries()[0]);
     }
 
     public function testIndexedColumnIsRejectedWithoutDdl(): void
