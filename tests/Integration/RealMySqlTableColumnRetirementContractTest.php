@@ -23,6 +23,7 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
 {
     public const TABLE = 'nomad_column_retirement_contract';
     private const CHILD_TABLE = 'nomad_column_retirement_child';
+    private const QUOTED_TABLE = 'nomad retirement odd`table';
 
     private PDO $pdo;
     private Container $container;
@@ -71,6 +72,7 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
         if (isset($this->pdo)) {
             $this->pdo->exec('DROP TABLE IF EXISTS ' . self::CHILD_TABLE);
             $this->pdo->exec('DROP TABLE IF EXISTS ' . self::TABLE);
+            $this->pdo->exec('DROP TABLE IF EXISTS ' . $this->quoteIdentifier(self::QUOTED_TABLE));
             $this->pdo->exec('DROP DATABASE IF EXISTS ' . $this->quoteIdentifier($this->shadowSchema));
         }
 
@@ -150,6 +152,56 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
         self::assertSame(
             [['id' => '1', 'unrelatedUnknown' => 'keep']],
             $this->pdo->query('SELECT id, unrelatedUnknown FROM ' . self::TABLE)->fetchAll()
+        );
+    }
+
+    /** @dataProvider invalidBatchMembers */
+    public function testInvalidBatchMemberPreventsAnyPersistedMutation(string $invalidName): void
+    {
+        self::markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
+
+        $failure = null;
+        try {
+            $this->strategy->retireColumns($this->table(), 'legacyValue', $invalidName);
+        } catch (\InvalidArgumentException $expected) {
+            $failure = $expected;
+        }
+
+        self::assertSame(
+            ['id', 'legacyValue', 'unrelatedUnknown', 'legacy value', 'odd`name', 'select', 'legacy-name', 'légacy值'],
+            $this->columns()
+        );
+        self::assertSame(
+            [['id' => '1', 'legacyValue' => '41', 'unrelatedUnknown' => 'keep']],
+            $this->pdo->query('SELECT id, legacyValue, unrelatedUnknown FROM ' . self::TABLE)->fetchAll()
+        );
+        self::assertInstanceOf(\InvalidArgumentException::class, $failure);
+    }
+
+    public function invalidBatchMembers(): array
+    {
+        return [[''], ["legacy\0Value"]];
+    }
+
+    public function testRetirementQuotesThePersistedTableIdentifier(): void
+    {
+        self::markTestIncomplete('Remove this marker when implementing the accepted retirement contract.');
+
+        $quotedTable = $this->quoteIdentifier(self::QUOTED_TABLE);
+        $this->pdo->exec(
+            'CREATE TABLE ' . $quotedTable
+            . ' (id INT PRIMARY KEY, `legacy value` INT NULL, unrelatedUnknown VARCHAR(32) NULL) ENGINE=InnoDB'
+        );
+        $this->pdo->exec(
+            "INSERT INTO " . $quotedTable . " (id, `legacy value`, unrelatedUnknown) VALUES (1, 42, 'keep')"
+        );
+
+        $this->strategy->retireColumns($this->table(['id'], self::QUOTED_TABLE), 'legacy value');
+
+        self::assertSame(['id', 'unrelatedUnknown'], $this->columns(self::QUOTED_TABLE));
+        self::assertSame(
+            [['id' => '1', 'unrelatedUnknown' => 'keep']],
+            $this->pdo->query('SELECT id, unrelatedUnknown FROM ' . $quotedTable)->fetchAll()
         );
     }
 
@@ -265,6 +317,7 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
     {
         $this->pdo->exec('DROP TABLE IF EXISTS ' . self::CHILD_TABLE);
         $this->pdo->exec('DROP TABLE IF EXISTS ' . self::TABLE);
+        $this->pdo->exec('DROP TABLE IF EXISTS ' . $this->quoteIdentifier(self::QUOTED_TABLE));
         $this->pdo->exec('DROP DATABASE IF EXISTS ' . $this->quoteIdentifier($this->shadowSchema));
         $this->pdo->exec(
             'CREATE TABLE ' . self::TABLE . ' ('
@@ -280,23 +333,23 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
     }
 
     /** @return list<string> */
-    private function columns(): array
+    private function columns(string $tableName = self::TABLE): array
     {
         $statement = $this->pdo->prepare(
             'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS '
             . 'WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION'
         );
-        $statement->execute([self::TABLE]);
+        $statement->execute([$tableName]);
 
         return array_column($statement->fetchAll(), 'COLUMN_NAME');
     }
 
     /** @param list<string> $declaredNames */
-    private function table(array $declaredNames = ['id', 'modernValue']): Table
+    private function table(array $declaredNames = ['id', 'modernValue'], string $tableName = self::TABLE): Table
     {
-        return new class ($declaredNames) implements Table {
-            public function __construct(private array $declaredNames) {}
-            public function getName(): string { return RealMySqlTableColumnRetirementContractTest::TABLE; }
+        return new class ($declaredNames, $tableName) implements Table {
+            public function __construct(private array $declaredNames, private string $tableName) {}
+            public function getName(): string { return $this->tableName; }
             public function getAlias(): string { return 'retirement'; }
             public function getTableVersion(): string { return '1'; }
             public function getColumns(): array
