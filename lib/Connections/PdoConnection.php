@@ -8,8 +8,8 @@ use PDO;
  * Lazily-opened PDO connection for the PDO database strategies.
  *
  * Accepts the same configuration shape consumers passed to SafeMySQL
- * (host / user / pass / db / port / charset), so migrating off the
- * abandoned colshrapnel/safemysql backend is a binding swap. An existing
+ * (host / user / pass / db / port / charset), so switching from the
+ * SafeMySQL backend is a binding swap. An existing
  * PDO instance can also be wrapped directly via fromPdo() — useful for
  * tests and for applications that manage their own connection.
  *
