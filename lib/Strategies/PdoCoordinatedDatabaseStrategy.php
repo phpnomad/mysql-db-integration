@@ -31,6 +31,10 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
 {
     protected LoggerStrategy $logger;
 
+    protected ?PDO $ownedAttemptPdo = null;
+
+    protected ?Throwable $inactiveAbortEvidence = null;
+
     public function __construct(PdoConnection $connection, LoggerStrategy $logger)
     {
         parent::__construct($connection);
@@ -71,36 +75,60 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
             throw $failure;
         }
 
-        try {
-            $this->guardCoordinationRecord($pdo, $coordinationTable->getName(), $definitions[0]['identity'], $identity);
-            $this->validateParticipants($pdo, $schema, $definitions);
-        } catch (Throwable $failure) {
-            $this->abortAttempt($pdo, 'coordination', $tableNames, $failure);
-        }
+        $this->openOwnedAttempt($pdo);
 
         try {
-            $result = $operation($this);
-        } catch (Throwable $failure) {
-            $this->abortAttempt($pdo, 'callback', $tableNames, $failure);
-        }
-
-        if (!$pdo->inTransaction()) {
-            $failure = new DatastoreErrorException('The coordinated operation lost transaction ownership.');
-            $this->reportFailure('commit', $tableNames, 'unknown', false, $failure);
-            throw new CoordinatedOperationOutcomeUnknownException(
-                'The coordinated database operation outcome is unknown.',
-                0,
-                $failure
-            );
-        }
-
-        try {
-            if (!$pdo->commit()) {
-                throw $this->driverFailure($pdo, 'The coordinated database commit was not acknowledged.');
+            try {
+                $this->guardCoordinationRecord($pdo, $coordinationTable->getName(), $definitions[0]['identity'], $identity);
+                $this->validateParticipants($pdo, $schema, $definitions);
+            } catch (Throwable $failure) {
+                $this->abortAttempt($pdo, 'coordination', $tableNames, $failure);
             }
-        } catch (Throwable $failure) {
-            $this->handleCommitFailure($pdo, $tableNames, $failure);
+
+            try {
+                $result = $operation($this);
+            } catch (Throwable $failure) {
+                $this->abortAttempt($pdo, 'callback', $tableNames, $failure);
+            }
+
+            if (!$pdo->inTransaction()) {
+                $failure = new DatastoreErrorException('The coordinated operation lost transaction ownership.');
+                $this->reportFailure('commit', $tableNames, 'unknown', false, $failure);
+                throw new CoordinatedOperationOutcomeUnknownException(
+                    'The coordinated database operation outcome is unknown.',
+                    0,
+                    $failure
+                );
+            }
+
+            try {
+                if (!$pdo->commit()) {
+                    throw $this->driverFailure($pdo, 'The coordinated database commit was not acknowledged.');
+                }
+            } catch (Throwable $failure) {
+                $this->handleCommitFailure($pdo, $tableNames, $failure);
+            }
+
+            return $result;
+        } finally {
+            $this->closeOwnedAttempt();
         }
+    }
+
+    /** @inheritDoc */
+    public function query(string $query)
+    {
+        $pdo = $this->connection->pdo();
+        $enteredOwned = $this->enterOwnedStatement($pdo);
+
+        try {
+            $result = parent::query($query);
+        } catch (Throwable $failure) {
+            $this->observeInactiveDriverFailure($pdo, $failure);
+            throw $failure;
+        }
+
+        $this->requireRetainedOwnership($pdo, $enteredOwned);
 
         return $result;
     }
@@ -383,7 +411,7 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
     protected function abortAttempt(PDO $pdo, string $phase, array $tables, Throwable $failure): never
     {
         if (!$pdo->inTransaction()) {
-            if ($this->isDeadlockFailure($failure)) {
+            if ($this->hasInactiveAbortEvidence($failure) && $this->isDeadlockFailure($failure)) {
                 $this->reportFailure($phase, $tables, 'rolled_back', true, $failure);
                 throw new CoordinatedOperationConflictException(
                     'The coordinated database operation conflicted.',
@@ -539,22 +567,82 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
         return $driver['sqlState'] === '40001' && $driver['driverCode'] === 1213;
     }
 
+    protected function openOwnedAttempt(PDO $pdo): void
+    {
+        $this->ownedAttemptPdo = $pdo;
+        $this->inactiveAbortEvidence = null;
+    }
+
+    protected function closeOwnedAttempt(): void
+    {
+        $this->ownedAttemptPdo = null;
+    }
+
+    protected function hasInactiveAbortEvidence(Throwable $failure): bool
+    {
+        return $this->inactiveAbortEvidence === $failure;
+    }
+
+    protected function enterOwnedStatement(PDO $pdo): bool
+    {
+        if ($this->ownedAttemptPdo !== $pdo) {
+            return false;
+        }
+        if (!$pdo->inTransaction()) {
+            throw new DatastoreErrorException('The coordinated operation lost transaction ownership before a database statement.');
+        }
+
+        return true;
+    }
+
+    protected function requireRetainedOwnership(PDO $pdo, bool $enteredOwned): void
+    {
+        if ($enteredOwned && !$pdo->inTransaction()) {
+            throw new DatastoreErrorException('The coordinated operation lost transaction ownership during a database statement.');
+        }
+    }
+
+    protected function observeInactiveDriverFailure(PDO $pdo, Throwable $failure): void
+    {
+        if ($this->ownedAttemptPdo === $pdo && !$pdo->inTransaction() && $this->isDeadlockFailure($failure)) {
+            $this->inactiveAbortEvidence = $failure;
+        }
+    }
+
     protected function queryStatement(PDO $pdo, string $sql): PDOStatement
     {
-        $statement = $pdo->query($sql);
-        if ($statement === false) {
-            throw $this->driverFailure($pdo, 'A coordinated database query failed.');
+        $enteredOwned = $this->enterOwnedStatement($pdo);
+        try {
+            $statement = $pdo->query($sql);
+        } catch (Throwable $failure) {
+            $this->observeInactiveDriverFailure($pdo, $failure);
+            throw $failure;
         }
+        if ($statement === false) {
+            $failure = $this->driverFailure($pdo, 'A coordinated database query failed.');
+            $this->observeInactiveDriverFailure($pdo, $failure);
+            throw $failure;
+        }
+        $this->requireRetainedOwnership($pdo, $enteredOwned);
 
         return $statement;
     }
 
     protected function prepareStatement(PDO $pdo, string $sql): PDOStatement
     {
-        $statement = $pdo->prepare($sql);
-        if ($statement === false) {
-            throw $this->driverFailure($pdo, 'A coordinated database statement could not be prepared.');
+        $enteredOwned = $this->enterOwnedStatement($pdo);
+        try {
+            $statement = $pdo->prepare($sql);
+        } catch (Throwable $failure) {
+            $this->observeInactiveDriverFailure($pdo, $failure);
+            throw $failure;
         }
+        if ($statement === false) {
+            $failure = $this->driverFailure($pdo, 'A coordinated database statement could not be prepared.');
+            $this->observeInactiveDriverFailure($pdo, $failure);
+            throw $failure;
+        }
+        $this->requireRetainedOwnership($pdo, $enteredOwned);
 
         return $statement;
     }
@@ -562,8 +650,25 @@ class PdoCoordinatedDatabaseStrategy extends PdoDatabaseStrategy implements Coor
     /** @param list<int|string> $values */
     protected function executeStatement(PDOStatement $statement, array $values): void
     {
-        if (!$statement->execute($values)) {
-            throw $this->driverFailure($statement, 'A coordinated database statement failed.');
+        $pdo = $this->ownedAttemptPdo;
+        $enteredOwned = $pdo !== null && $this->enterOwnedStatement($pdo);
+        try {
+            $executed = $statement->execute($values);
+        } catch (Throwable $failure) {
+            if ($pdo !== null) {
+                $this->observeInactiveDriverFailure($pdo, $failure);
+            }
+            throw $failure;
+        }
+        if (!$executed) {
+            $failure = $this->driverFailure($statement, 'A coordinated database statement failed.');
+            if ($pdo !== null) {
+                $this->observeInactiveDriverFailure($pdo, $failure);
+            }
+            throw $failure;
+        }
+        if ($pdo !== null) {
+            $this->requireRetainedOwnership($pdo, $enteredOwned);
         }
     }
 

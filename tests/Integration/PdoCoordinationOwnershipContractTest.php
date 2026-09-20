@@ -21,7 +21,6 @@ final class PdoCoordinationOwnershipContractTest extends OwnedPdoCoordinationCon
     protected function setUp(): void
     {
         parent::setUp();
-        $this->markTestIncomplete('Composed ownership-loss protection is pending.');
     }
 
     /** @dataProvider inactiveCoordinationBoundaries */
