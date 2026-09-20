@@ -175,6 +175,41 @@ final class RealMySqlTableColumnRetirementContractTest extends TestCase
         );
     }
 
+    /** @dataProvider absentDeclaredCaseVariants */
+    public function testAbsentDeclaredCaseVariantRejectsWholeBatchBeforeMutation(
+        string $declaredName,
+        string $requestedName
+    ): void {
+        $failure = null;
+        try {
+            $this->strategy->retireColumns(
+                $this->table(['id', $declaredName]),
+                'legacyValue',
+                $requestedName
+            );
+        } catch (\InvalidArgumentException $expected) {
+            $failure = $expected;
+        }
+
+        self::assertSame(
+            ['id', 'legacyValue', 'unrelatedUnknown', 'legacy value', 'odd`name', 'select', 'legacy-name', 'légacy值'],
+            $this->columns()
+        );
+        self::assertSame(
+            [['id' => '1', 'legacyValue' => '41', 'unrelatedUnknown' => 'keep']],
+            $this->pdo->query('SELECT id, legacyValue, unrelatedUnknown FROM ' . self::TABLE)->fetchAll()
+        );
+        self::assertInstanceOf(\InvalidArgumentException::class, $failure);
+    }
+
+    public function absentDeclaredCaseVariants(): array
+    {
+        return [
+            'ASCII case variant' => ['modernValue', 'MODERNVALUE'],
+            'Unicode case variant' => ['módernValue', 'MÓDERNVALUE'],
+        ];
+    }
+
     /** @dataProvider invalidBatchMembers */
     public function testInvalidBatchMemberPreventsAnyPersistedMutation(string $invalidName): void
     {

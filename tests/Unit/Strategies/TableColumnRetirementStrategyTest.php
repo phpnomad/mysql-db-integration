@@ -53,6 +53,30 @@ final class TableColumnRetirementStrategyTest extends TestCase
         (new TableUpdateStrategy($db))->columnExists($this->table(), 'legacyValue');
     }
 
+    /** @dataProvider malformedMetadataResults */
+    public function testMalformedMetadataResultFailsClosedBeforeDdl($result): void
+    {
+        $db = new RetirementRecordingDatabase(['legacyValue']);
+        $db->overrideMetadataResult = true;
+        $db->metadataResult = $result;
+
+        try {
+            (new TableUpdateStrategy($db))->retireColumns($this->table(), 'legacyValue');
+            self::fail('Malformed metadata must fail closed.');
+        } catch (TableUpdateFailedException $expected) {
+            self::assertSame([], $db->alterQueries());
+        }
+    }
+
+    public function malformedMetadataResults(): array
+    {
+        return [
+            'false' => [false],
+            'null' => [null],
+            'malformed row' => [[null]],
+        ];
+    }
+
     public function testRetirementDropsOnlyTheNamedColumn(): void
     {
         $db = new RetirementRecordingDatabase(['id', 'legacyValue', 'unrelatedUnknown']);
@@ -200,6 +224,8 @@ final class RetirementRecordingDatabase implements DatabaseStrategy
     public array $foreignKeyColumns = [];
     public bool $failMetadata = false;
     public bool $failAlter = false;
+    public bool $overrideMetadataResult = false;
+    public $metadataResult;
 
     /** @param list<string> $columns */
     public function __construct(array $columns = [])
@@ -239,6 +265,22 @@ final class RetirementRecordingDatabase implements DatabaseStrategy
         }
         if ($this->failMetadata) {
             throw new DatastoreErrorException('Metadata failed');
+        }
+        if ($this->overrideMetadataResult && stripos($query, 'INFORMATION_SCHEMA.') !== false) {
+            return $this->metadataResult;
+        }
+        if (stripos($query, 'AS identifiers_equal') !== false) {
+            if (preg_match(
+                "/SELECT candidate = '((?:''|[^'])*)'.*UNION ALL SELECT '((?:''|[^'])*)'/is",
+                $query,
+                $matches
+            ) !== 1) {
+                throw new \RuntimeException('Identifier comparison query was not understood by the fixture.');
+            }
+            $right = str_replace("''", "'", $matches[1]);
+            $left = str_replace("''", "'", $matches[2]);
+
+            return [['identifiers_equal' => strcasecmp($left, $right) === 0 ? '1' : '0']];
         }
         if (stripos($query, 'INFORMATION_SCHEMA.COLUMNS') !== false) {
             $columns = $this->columns;

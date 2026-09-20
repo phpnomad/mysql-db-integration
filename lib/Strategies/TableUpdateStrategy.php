@@ -83,11 +83,8 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy, CoreTableColumnRet
             }
 
             foreach ($table->getColumns() as $column) {
-                $declaredName = $column->getName();
-                $currentDeclaredName = $this->findCurrentColumnName($table->getName(), $declaredName);
                 foreach ($columnNames as $columnName) {
-                    if ($declaredName === $columnName
-                        || ($currentDeclaredName !== null && isset($targets[$currentDeclaredName]))) {
+                    if ($this->identifiersEqual($column->getName(), $columnName)) {
                         throw new \InvalidArgumentException('A declared column cannot be retired.');
                     }
                 }
@@ -121,33 +118,60 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy, CoreTableColumnRet
 
     private function findCurrentColumnName(string $tableName, string $columnName): ?string
     {
-        $rows = $this->db->query($this->db->parse(
+        $rows = $this->metadataRows($this->db->query($this->db->parse(
             'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS '
             . 'WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?s AND COLUMN_NAME = ?s',
             $tableName,
             $columnName
-        ));
+        )));
 
         foreach ($rows as $row) {
-            if (isset($row['COLUMN_NAME']) && is_string($row['COLUMN_NAME'])) {
-                return $row['COLUMN_NAME'];
+            $persistedName = $row['COLUMN_NAME'] ?? null;
+            if (!is_string($persistedName)) {
+                throw new \UnexpectedValueException('Column metadata did not contain a valid name.');
             }
+
+            return $persistedName;
         }
 
         return null;
     }
 
+    private function identifiersEqual(string $left, string $right): bool
+    {
+        $rows = $this->metadataRows($this->db->query($this->db->parse(
+            'SELECT candidate = ?s AS identifiers_equal FROM ('
+            . 'SELECT COLUMN_NAME AS candidate FROM INFORMATION_SCHEMA.COLUMNS WHERE 1 = 0 '
+            . 'UNION ALL SELECT ?s) AS identifier_semantics',
+            $right,
+            $left
+        )));
+        $value = $rows[0]['identifiers_equal'] ?? null;
+
+        if ($value !== 0 && $value !== 1 && $value !== '0' && $value !== '1') {
+            throw new \UnexpectedValueException('Failed to compare column identifiers.');
+        }
+
+        return (string) $value === '1';
+    }
+
     /** @param array<string, string> $targets persisted name => persisted name */
     private function assertNoColumnDependencies(string $tableName, array $targets): void
     {
-        $statistics = $this->db->query($this->db->parse(
+        $statistics = $this->metadataRows($this->db->query($this->db->parse(
             'SELECT INDEX_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.STATISTICS '
             . 'WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?s',
             $tableName
-        ));
+        )));
 
         foreach ($statistics as $statistic) {
+            if (!array_key_exists('COLUMN_NAME', $statistic)) {
+                throw new \UnexpectedValueException('Index metadata did not contain a column identity.');
+            }
             $columnName = $statistic['COLUMN_NAME'] ?? null;
+            if ($columnName !== null && !is_string($columnName)) {
+                throw new \UnexpectedValueException('Index metadata contained a malformed column identity.');
+            }
             if (is_string($columnName) && isset($targets[$columnName])) {
                 throw new \InvalidArgumentException('An indexed column cannot be retired implicitly.');
             }
@@ -156,22 +180,42 @@ class TableUpdateStrategy implements CoreTableUpdateStrategy, CoreTableColumnRet
             }
         }
 
-        $foreignKeys = $this->db->query($this->db->parse(
+        $foreignKeys = $this->metadataRows($this->db->query($this->db->parse(
             'SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME '
             . 'FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() '
             . 'AND (TABLE_NAME = ?s OR (REFERENCED_TABLE_SCHEMA = DATABASE() AND REFERENCED_TABLE_NAME = ?s))',
             $tableName,
             $tableName
-        ));
+        )));
 
         foreach ($foreignKeys as $foreignKey) {
             $localColumn = $foreignKey['COLUMN_NAME'] ?? null;
             $referencedColumn = $foreignKey['REFERENCED_COLUMN_NAME'] ?? null;
+            if (!is_string($localColumn)
+                || ($referencedColumn !== null && !is_string($referencedColumn))) {
+                throw new \UnexpectedValueException('Foreign-key metadata contained a malformed column identity.');
+            }
             if ((is_string($localColumn) && isset($targets[$localColumn]))
                 || (is_string($referencedColumn) && isset($targets[$referencedColumn]))) {
                 throw new \InvalidArgumentException('A foreign-key column cannot be retired implicitly.');
             }
         }
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function metadataRows($result): array
+    {
+        if (!is_array($result)) {
+            throw new \UnexpectedValueException('Metadata query did not return rows.');
+        }
+
+        foreach ($result as $row) {
+            if (!is_array($row)) {
+                throw new \UnexpectedValueException('Metadata query returned a malformed row.');
+            }
+        }
+
+        return array_values($result);
     }
 
     /**
