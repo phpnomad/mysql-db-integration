@@ -117,6 +117,27 @@ final class PredicateArgumentsDriverContractTest extends TestCase
         ], $this->container->get(QueryStrategy::class)->query($query));
     }
 
+    public function testPreparedQueryExtensionsDoNotReparseAFormattedWhereClause(): void
+    {
+        $table = new FormattingTable();
+        $literal = 'target ?s ?n ?i ?a ?u ?p';
+        $statement = $this->pdo->prepare('UPDATE nomad_bound_formatting SET label = ? WHERE id = 50');
+        self::assertNotFalse($statement);
+        $statement->execute([$literal]);
+        $clause = (clone $this->container->get(ClauseBuilder::class))->useTable($table)->where('label', '=', $literal);
+        $query = new class () extends \PHPNomad\MySql\Integration\Builders\QueryBuilder {
+            public function withPreparedOrderAndLimit(string $token, int $limit): self
+            {
+                $this->orderBy = ['ORDER BY', ['type' => '?s', 'value' => $token]];
+                $this->limit = ['LIMIT', ['type' => '?i', 'value' => $limit]];
+                return $this;
+            }
+        };
+        $query->from($table)->select('*')->withPreparedOrderAndLimit('ordered ?s ?n ?i ?a ?u ?p', 1)->where($clause);
+
+        self::assertSame([['id' => '50', 'score' => '70', 'label' => $literal]], $this->container->get(QueryStrategy::class)->query($query));
+    }
+
     /** @dataProvider writes */
     public function testInvalidWriteIdentityIsReportedAsADatastoreFailure(string $operation): void
     {
