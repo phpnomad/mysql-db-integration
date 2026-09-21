@@ -8,10 +8,12 @@ use PDO;
  * Lazily-opened PDO connection for the PDO database strategies.
  *
  * Accepts the same configuration shape consumers passed to SafeMySQL
- * (host / user / pass / db / port / charset), so migrating off the
- * abandoned colshrapnel/safemysql backend is a binding swap. An existing
+ * (host / user / pass / db / port / charset), so switching from the
+ * SafeMySQL backend is a binding swap. An existing
  * PDO instance can also be wrapped directly via fromPdo() — useful for
  * tests and for applications that manage their own connection.
+ *
+ * @phpstan-consistent-constructor
  */
 class PdoConnection
 {
@@ -31,7 +33,6 @@ class PdoConnection
     public static function fromPdo(PDO $pdo): static
     {
         // Late static binding preserves the public factory contract for consumer subclasses.
-        // @phpstan-ignore new.static
         $connection = new static();
         $connection->pdo = $pdo;
 
