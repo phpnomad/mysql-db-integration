@@ -30,6 +30,8 @@ class PdoConnection
 
     public static function fromPdo(PDO $pdo): static
     {
+        // Late static binding preserves the public factory contract for consumer subclasses.
+        // @phpstan-ignore new.static
         $connection = new static();
         $connection->pdo = $pdo;
 

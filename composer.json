@@ -36,8 +36,9 @@
         }
     ],
     "require": {
-        "phpnomad/db": "dev-codex/coordinated-database-contracts-v2 as 2.2.x-dev",
+        "phpnomad/db": "dev-release/2.2 as 2.2.x-dev",
         "phpnomad/loader": "^1.0 || ^2.0",
+        "phpnomad/logger": "^1.0",
         "ext-pdo": "*"
     },
     "require-dev": {

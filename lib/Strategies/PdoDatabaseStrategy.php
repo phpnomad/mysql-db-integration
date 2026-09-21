@@ -67,6 +67,7 @@ class PdoDatabaseStrategy implements DatabaseStrategy
                 '?a' => $this->createInList(is_array($value) ? $value : [$value]),
                 '?u' => $this->createSetClause((array) $value),
                 '?p' => (string) $value,
+                default => throw new \InvalidArgumentException('Unsupported query placeholder.'),
             };
         }
 
