@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "05bf4d123c4107d35ba7155103271611",
+    "content-hash": "65f1a0ce072b6923bec7c83fa5a20df0",
     "packages": [
         {
             "name": "phpnomad/cache",
@@ -93,11 +93,11 @@
         },
         {
             "name": "phpnomad/db",
-            "version": "dev-release/2.2",
+            "version": "dev-codex/operation-local-handler-bridge",
             "source": {
                 "type": "git",
                 "url": "git@github.com:phpnomad/db.git",
-                "reference": "17fb84703d260a66de874704ae37cf924b9d8c2b"
+                "reference": "4b0b7709e5945a4290b04c2e3562ef919923ed08"
             },
             "require": {
                 "phpnomad/cache": "^1.0",
@@ -136,7 +136,7 @@
                 }
             ],
             "homepage": "https://github.com/phpnomad/core",
-            "time": "2026-09-20T15:42:00+00:00"
+            "time": "2026-09-20T23:21:17+00:00"
         },
         {
             "name": "phpnomad/di",
@@ -5365,7 +5365,7 @@
     "aliases": [
         {
             "package": "phpnomad/db",
-            "version": "dev-release/2.2",
+            "version": "dev-codex/operation-local-handler-bridge",
             "alias": "2.2.x-dev",
             "alias_normalized": "2.2.9999999.9999999-dev"
         }

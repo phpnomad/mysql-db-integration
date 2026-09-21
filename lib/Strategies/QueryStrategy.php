@@ -81,7 +81,7 @@ class QueryStrategy implements CoreQueryStrategy
     {
         /** @var array<string, int> $identity */
         $identity = [];
-        $primaryColumns = $this->tableSchemaService->getPrimaryColumnsForTable($table);
+        $primaryColumns = $this->tableSchemaService->getPrimaryColumnsForTableUncached($table);
 
         foreach ($primaryColumns as $column) {
             $name = $column->getName();
