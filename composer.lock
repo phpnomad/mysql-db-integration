@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "65f1a0ce072b6923bec7c83fa5a20df0",
+    "content-hash": "ba44867cbba78f14aa0617747da4388d",
     "packages": [
         {
             "name": "phpnomad/cache",
@@ -93,11 +93,17 @@
         },
         {
             "name": "phpnomad/db",
-            "version": "dev-codex/operation-local-handler-bridge",
+            "version": "2.2.4",
             "source": {
                 "type": "git",
-                "url": "git@github.com:phpnomad/db.git",
-                "reference": "4b0b7709e5945a4290b04c2e3562ef919923ed08"
+                "url": "https://github.com/phpnomad/db.git",
+                "reference": "7f0f6e0dc75fd9ec8156daa47ece6a1bf6e1a7e6"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/phpnomad/db/zipball/7f0f6e0dc75fd9ec8156daa47ece6a1bf6e1a7e6",
+                "reference": "7f0f6e0dc75fd9ec8156daa47ece6a1bf6e1a7e6",
+                "shasum": ""
             },
             "require": {
                 "phpnomad/cache": "^1.0",
@@ -116,16 +122,7 @@
                     "PHPNomad\\Database\\": "lib/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "PHPNomad\\Database\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "php-cs-fixer": [
-                    "php-cs-fixer fix"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -136,7 +133,11 @@
                 }
             ],
             "homepage": "https://github.com/phpnomad/core",
-            "time": "2026-09-20T23:21:17+00:00"
+            "support": {
+                "issues": "https://github.com/phpnomad/db/issues",
+                "source": "https://github.com/phpnomad/db/tree/2.2.4"
+            },
+            "time": "2026-09-28T17:59:19+00:00"
         },
         {
             "name": "phpnomad/di",
@@ -5362,18 +5363,9 @@
             "time": "2025-11-17T20:03:58+00:00"
         }
     ],
-    "aliases": [
-        {
-            "package": "phpnomad/db",
-            "version": "dev-codex/operation-local-handler-bridge",
-            "alias": "2.2.x-dev",
-            "alias_normalized": "2.2.9999999.9999999-dev"
-        }
-    ],
+    "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": {
-        "phpnomad/db": 20
-    },
+    "stability-flags": {},
     "prefer-stable": false,
     "prefer-lowest": false,
     "platform": {
