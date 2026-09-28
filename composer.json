@@ -36,7 +36,7 @@
         }
     ],
     "require": {
-        "phpnomad/db": "dev-release/2.2 as 2.2.x-dev",
+        "phpnomad/db": "dev-codex/operation-local-handler-bridge#4b0b7709e5945a4290b04c2e3562ef919923ed08 as 2.2.x-dev",
         "phpnomad/loader": "^1.0 || ^2.0",
         "phpnomad/logger": "^1.0",
         "ext-pdo": "*"
