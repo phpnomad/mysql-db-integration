@@ -18,6 +18,13 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
     protected array $clauses = [];
     /** @var list<mixed> */
     protected array $preparedValues = [];
+    /**
+     * Values for each condition, keyed by the index of the condition's
+     * placeholder in $clauses.
+     *
+     * @var array<int, list<mixed>>
+     */
+    protected array $conditionValues = [];
     /** @var list<DatabaseStrategy> */
     private array $databaseStrategyStack = [];
 
@@ -177,74 +184,96 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
         $this->clauses[] = $fieldStr;
         $this->clauses[] = $operator;
         $this->clauses[] = $placeholder;
+        $this->conditionValues[array_key_last($this->clauses)] = [];
 
         foreach ($values as $value) {
             $this->preparedValues[] = $value;
+            $this->conditionValues[array_key_last($this->clauses)][] = $value;
         }
 
         return $this;
     }
 
     /**
+     * Builds the clause in a single pass.
+     *
+     * Grouped clauses are built first. Each run of plain conditions between
+     * them is then bound to its own values, and the finished group SQL is
+     * placed between those runs. Bound values are never searched or rewritten
+     * afterward.
+     *
      * @inheritDoc
      */
     public function build(): string
     {
-        global $wpdb;
-        $queryParts = [];
-        $allValues = $this->preparedValues; // Initially prepared values
-        $subQueryReplacements = [];
-        $query = "";
-        $marker = 0;
+        $builtGroups = [];
 
-        foreach ($this->clauses as $clause) {
-            if (is_string($clause)) {
-                // Directly append logical operators or raw SQL parts
-                $queryParts[] = $clause;
-            } elseif (is_array($clause) && isset($clause['logic'], $clause['clauses'])) {
-                // Process group of clauses
+        foreach ($this->clauses as $index => $clause) {
+            if (is_array($clause) && isset($clause['logic'], $clause['clauses'])) {
                 $groupParts = [];
                 foreach ($clause['clauses'] as $groupClause) {
                     if ($groupClause instanceof ClauseBuilder) {
-                        $marker++;
-                        $uniqueMarker = '__NOMADIC_SUBQUERY__' . $marker;
-                        $builtClause = $this->buildClause($groupClause);
-                        $subQueryReplacements[$uniqueMarker] = $builtClause;
-                        $groupParts[] = $uniqueMarker;
+                        $groupParts[] = $this->buildClause($groupClause);
                     }
                 }
-                if (!empty($groupParts)) {
-                    $queryParts[] = '(' . implode(" {$clause['logic']} ", $groupParts) . ')';
-                }
+                $builtGroups[$index] = empty($groupParts)
+                    ? null
+                    : '(' . implode(" {$clause['logic']} ", $groupParts) . ')';
             } elseif ($clause instanceof ClauseBuilder) {
-                $marker++;
-                $uniqueMarker = '__NOMADIC_SUBQUERY__' . $marker;
-                $builtClause = $this->buildClause($clause);
-                $subQueryReplacements[$uniqueMarker] = $builtClause;
-                $queryParts[] = $uniqueMarker;
+                $builtGroups[$index] = $this->buildClause($clause);
             }
         }
 
-        if (!empty($queryParts)) {
-            $query = implode(' ', $queryParts);
+        $queryParts = [];
+        $run = [];
+        $runValues = [];
 
-            // Prepare the query with initial values if available
-            if (!empty($allValues)) {
-                $database = $this->getActiveDatabaseStrategy();
-                $query = $database === null
-                    ? Database::parse($query, ...$allValues)
-                    : $database->parse($query, ...$allValues);
-            }
-
-            // Replace subquery markers with their actual queries
-            foreach ($subQueryReplacements as $marker => $subQuery) {
-                $query = str_replace($marker, $subQuery, $query);
+        foreach ($this->clauses as $index => $clause) {
+            if (is_string($clause)) {
+                $run[] = $clause;
+                foreach ($this->conditionValues[$index] ?? [] as $value) {
+                    $runValues[] = $value;
+                }
+            } elseif (array_key_exists($index, $builtGroups)) {
+                if (!empty($run)) {
+                    $queryParts[] = $this->bindValues(implode(' ', $run), $runValues);
+                    $run = [];
+                    $runValues = [];
+                }
+                if ($builtGroups[$index] !== null) {
+                    $queryParts[] = $builtGroups[$index];
+                }
             }
         }
+
+        if (!empty($run)) {
+            $queryParts[] = $this->bindValues(implode(' ', $run), $runValues);
+        }
+
+        $query = implode(' ', $queryParts);
 
         $this->reset();
 
         return $query;
+    }
+
+    /**
+     * Binds values to a run of conditions that holds no grouped clauses.
+     *
+     * @param string $sql The conditions, with their placeholders.
+     * @param list<mixed> $values The values for those placeholders, in order.
+     */
+    protected function bindValues(string $sql, array $values): string
+    {
+        if (empty($values)) {
+            return $sql;
+        }
+
+        $database = $this->getActiveDatabaseStrategy();
+
+        return $database === null
+            ? Database::parse($sql, ...$values)
+            : $database->parse($sql, ...$values);
     }
 
     protected function buildClause(ClauseBuilder $clause): string
@@ -274,6 +303,7 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
     {
         $this->clauses = [];
         $this->preparedValues = [];
+        $this->conditionValues = [];
 
         return $this;
     }
