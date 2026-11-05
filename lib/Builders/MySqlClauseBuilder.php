@@ -206,6 +206,18 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
      */
     public function build(): string
     {
+        try {
+            return $this->assemble();
+        } finally {
+            $this->reset();
+        }
+    }
+
+    /**
+     * Assembles the conditions into SQL.
+     */
+    protected function assemble(): string
+    {
         $builtGroups = [];
 
         foreach ($this->clauses as $index => $clause) {
@@ -250,11 +262,7 @@ class MySqlClauseBuilder implements ClauseBuilder, CanBuildWithDatabaseStrategy
             $queryParts[] = $this->bindValues(implode(' ', $run), $runValues);
         }
 
-        $query = implode(' ', $queryParts);
-
-        $this->reset();
-
-        return $query;
+        return implode(' ', $queryParts);
     }
 
     /**

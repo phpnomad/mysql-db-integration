@@ -3,14 +3,18 @@
 namespace PHPNomad\MySql\Integration\Tests\Unit\Builders;
 
 use Mockery;
+use PHPNomad\Database\Exceptions\QueryBuilderException;
 use PHPNomad\Database\Factories\Column;
+use PHPNomad\Database\Interfaces\ClauseBuilder;
 use PHPNomad\Database\Interfaces\Table;
 use PHPNomad\Di\Container;
 use PHPNomad\MySql\Integration\Builders\MySqlClauseBuilder;
+use PHPNomad\MySql\Integration\Builders\QueryBuilder;
 use PHPNomad\MySql\Integration\Facades\Database;
 use PHPNomad\MySql\Integration\Interfaces\DatabaseStrategy;
 use PHPNomad\MySql\Integration\Tests\Fixtures\QuotingDatabaseStrategy;
 use PHPNomad\MySql\Integration\Tests\TestCase;
+use RuntimeException;
 
 /**
  * @covers \PHPNomad\MySql\Integration\Builders\MySqlClauseBuilder
@@ -30,6 +34,7 @@ class MySqlClauseBuilderTest extends TestCase
         Database::instance()->setContainer($container);
 
         $table = Mockery::mock(Table::class);
+        $table->shouldReceive('getName')->andReturn('programs');
         $table->shouldReceive('getAlias')->andReturn('programs');
         $table->shouldReceive('getColumns')->andReturn([
             new Column('id', 'BIGINT'),
@@ -181,6 +186,75 @@ class MySqlClauseBuilderTest extends TestCase
         $builder->build();
 
         $this->assertSame("programs.name = 'b'", $builder->where('name', '=', 'b')->build());
+    }
+
+    public function test_a_build_that_throws_leaves_nothing_for_the_next(): void
+    {
+        $failing = Mockery::mock(ClauseBuilder::class);
+        $failing->shouldReceive('build')->andThrow(new RuntimeException('group failed'));
+        $builder = $this->builder()->where('status', '=', 'left-behind')->andGroup('AND', $failing);
+
+        try {
+            $builder->build();
+            $this->fail('The build did not throw.');
+        } catch (RuntimeException) {
+        }
+
+        $this->assertSame("programs.orgId = '5'", $builder->where('orgId', '=', 5)->build());
+    }
+
+    public function test_a_query_the_query_builder_refuses_leaves_nothing_for_the_next(): void
+    {
+        $shared = $this->builder();
+        $queryBuilder = new QueryBuilder();
+
+        // Started as a datastore starts a query, then refused for want of a select.
+        $this->startQuery($shared, $queryBuilder);
+        $shared->andGroup('AND', (clone $shared)->reset()->useTable($this->table)->where('status', '=', 'left-behind'));
+        $queryBuilder->where($shared);
+
+        try {
+            $queryBuilder->build();
+            $this->fail('The query built.');
+        } catch (QueryBuilderException) {
+        }
+
+        $this->assertSame("SELECT programs.id FROM programs AS programs WHERE (programs.orgId = '5')", $this->nextQuery($shared, $queryBuilder));
+    }
+
+    public function test_keeps_conditions_the_query_builder_takes(): void
+    {
+        $shared = $this->builder();
+        $queryBuilder = new QueryBuilder();
+
+        $this->startQuery($shared, $queryBuilder);
+        $queryBuilder->select('id');
+        $shared->where('orgId', '=', 5)->andGroup('AND', $this->builder()->where('status', '=', 'active'));
+        $queryBuilder->where($shared);
+
+        $this->assertSame(
+            "SELECT programs.id FROM programs AS programs WHERE programs.orgId = '5' AND (programs.status = 'active')",
+            $queryBuilder->build()
+        );
+    }
+
+    /**
+     * What the datastores do as they start each query.
+     */
+    private function startQuery(MySqlClauseBuilder $shared, QueryBuilder $queryBuilder): void
+    {
+        $shared->useTable($this->table);
+        $queryBuilder->reset()->from($this->table);
+    }
+
+    private function nextQuery(MySqlClauseBuilder $shared, QueryBuilder $queryBuilder): string
+    {
+        $this->startQuery($shared, $queryBuilder);
+        $queryBuilder->select('id');
+        $shared->andGroup('AND', (clone $shared)->reset()->useTable($this->table)->where('orgId', '=', 5));
+        $queryBuilder->where($shared);
+
+        return $queryBuilder->build();
     }
 
     public function groupsOfIds(int $count): MySqlClauseBuilder
