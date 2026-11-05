@@ -13,6 +13,14 @@ class MySqlClauseBuilder implements ClauseBuilder
 
     protected array $clauses = [];
     protected array $preparedValues = [];
+
+    /**
+     * Values for each condition, keyed by the index of the condition's
+     * placeholder in $clauses.
+     *
+     * @var array<int, array>
+     */
+    protected array $conditionValues = [];
     protected array $validOperators = ["=", "<", ">", "<=", ">=", "<>", "!=",
         "LIKE", "NOT LIKE", "IN", "NOT IN", "BETWEEN",
         "NOT BETWEEN", "IS NULL", "IS NOT NULL"];
@@ -143,71 +151,92 @@ class MySqlClauseBuilder implements ClauseBuilder
         $this->clauses[] = $fieldStr;
         $this->clauses[] = $operator;
         $this->clauses[] = $placeholder;
+        $this->conditionValues[array_key_last($this->clauses)] = [];
 
         foreach (Arr::whereNotNull($values) as $value) {
             $this->preparedValues[] = $value;
+            $this->conditionValues[array_key_last($this->clauses)][] = $value;
         }
 
         return $this;
     }
 
     /**
+     * Builds the clause in a single pass.
+     *
+     * Grouped clauses are built first. Each run of plain conditions between
+     * them is then bound to its own values, and the finished group SQL is
+     * placed between those runs. Bound values are never searched or rewritten
+     * afterward.
+     *
      * @inheritDoc
      */
     public function build(): string
     {
-        global $wpdb;
-        $queryParts = [];
-        $allValues = $this->preparedValues; // Initially prepared values
-        $subQueryReplacements = [];
-        $query = "";
-        $marker = 0;
+        $builtGroups = [];
 
-        foreach ($this->clauses as $clause) {
-            if (is_string($clause)) {
-                // Directly append logical operators or raw SQL parts
-                $queryParts[] = $clause;
-            } elseif (is_array($clause) && isset($clause['logic'], $clause['clauses'])) {
-                // Process group of clauses
+        foreach ($this->clauses as $index => $clause) {
+            if (is_array($clause) && isset($clause['logic'], $clause['clauses'])) {
                 $groupParts = [];
                 foreach ($clause['clauses'] as $groupClause) {
                     if ($groupClause instanceof ClauseBuilder) {
-                        $marker++;
-                        $uniqueMarker = '__NOMADIC_SUBQUERY__' . $marker;
-                        $builtClause = $groupClause->build();
-                        $subQueryReplacements[$uniqueMarker] = $builtClause;
-                        $groupParts[] = $uniqueMarker;
+                        $groupParts[] = $groupClause->build();
                     }
                 }
-                if (!empty($groupParts)) {
-                    $queryParts[] = '(' . implode(" {$clause['logic']} ", $groupParts) . ')';
-                }
+                $builtGroups[$index] = empty($groupParts)
+                    ? null
+                    : '(' . implode(" {$clause['logic']} ", $groupParts) . ')';
             } elseif ($clause instanceof ClauseBuilder) {
-                $marker++;
-                $uniqueMarker = '__NOMADIC_SUBQUERY__' . $marker;
-                $builtClause = $clause->build();
-                $subQueryReplacements[$uniqueMarker] = $builtClause;
-                $queryParts[] = $uniqueMarker;
+                $builtGroups[$index] = $clause->build();
             }
         }
 
-        if (!empty($queryParts)) {
-            $query = implode(' ', $queryParts);
+        $queryParts = [];
+        $run = [];
+        $runValues = [];
 
-            // Prepare the query with initial values if available
-            if (!empty($allValues)) {
-                $query = Database::parse($query, ...$allValues);
-            }
-
-            // Replace subquery markers with their actual queries
-            foreach ($subQueryReplacements as $marker => $subQuery) {
-                $query = str_replace($marker, $subQuery, $query);
+        foreach ($this->clauses as $index => $clause) {
+            if (is_string($clause)) {
+                $run[] = $clause;
+                foreach ($this->conditionValues[$index] ?? [] as $value) {
+                    $runValues[] = $value;
+                }
+            } elseif (array_key_exists($index, $builtGroups)) {
+                if (!empty($run)) {
+                    $queryParts[] = $this->bindValues(implode(' ', $run), $runValues);
+                    $run = [];
+                    $runValues = [];
+                }
+                if ($builtGroups[$index] !== null) {
+                    $queryParts[] = $builtGroups[$index];
+                }
             }
         }
+
+        if (!empty($run)) {
+            $queryParts[] = $this->bindValues(implode(' ', $run), $runValues);
+        }
+
+        $query = implode(' ', $queryParts);
 
         $this->reset();
 
         return $query;
+    }
+
+    /**
+     * Binds values to a run of conditions that holds no grouped clauses.
+     *
+     * @param string $sql The conditions, with their placeholders.
+     * @param array $values The values for those placeholders, in order.
+     */
+    protected function bindValues(string $sql, array $values): string
+    {
+        if (empty($values)) {
+            return $sql;
+        }
+
+        return Database::parse($sql, ...$values);
     }
 
     /**
@@ -217,6 +246,7 @@ class MySqlClauseBuilder implements ClauseBuilder
     {
         $this->clauses = [];
         $this->preparedValues = [];
+        $this->conditionValues = [];
 
         return $this;
     }
